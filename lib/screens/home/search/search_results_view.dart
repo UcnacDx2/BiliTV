@@ -256,7 +256,10 @@ class _SearchResultsViewState extends State<SearchResultsView> {
               sliver: SliverGrid(
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 4,
-                  childAspectRatio: 360 / 300,
+                  // Keep enough vertical room for BaseTvCard's image,
+                  // title and metadata rows. The previous ratio left the
+                  // card a fraction of a pixel too short on TV constraints.
+                  childAspectRatio: 320 / 280,
                   crossAxisSpacing: 20,
                   mainAxisSpacing: 30,
                 ),

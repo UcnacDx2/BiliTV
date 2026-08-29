@@ -199,7 +199,11 @@ class _SearchKeyboardViewState extends State<SearchKeyboardView> {
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 6,
-                          childAspectRatio: 1.1,
+                          // The TV's logical height is smaller than its
+                          // 1080p physical framebuffer. Slightly shorter
+                          // keys keep the bottom search button within the
+                          // left panel instead of overflowing it.
+                          childAspectRatio: 1.15,
                           crossAxisSpacing: 8,
                           mainAxisSpacing: 8,
                         ),
