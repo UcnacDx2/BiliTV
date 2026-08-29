@@ -194,11 +194,10 @@ mixin PlayerActionMixin on PlayerStateMixin {
           forceCodec: tryCodec,
         );
 
-        // 2. 智能升级 (仅针对 VIP)
-        // 如果是 VIP 且首次请求成功，检查是否有更高画质可用
-        if (AuthService.isVip &&
-            playInfo != null &&
-            playInfo['qualities'] != null) {
+        // 2. 智能升级
+        // 以取流账号本次 playurl 响应声明的画质为准，不使用主账号 VIP
+        // 状态作为跨账号授权判断。
+        if (playInfo != null && playInfo['qualities'] != null) {
           final qualities = playInfo['qualities'] as List;
           if (qualities.isNotEmpty) {
             // 获取该视频支持的最高画质
@@ -214,7 +213,8 @@ mixin PlayerActionMixin on PlayerStateMixin {
               // 注意: 有时候 maxQn 可能高达 127/126，而 currentQn 只有 80
               if (maxQn > currentQn) {
                 debugPrint(
-                  '🎬 [SmartQuality] VIP detected. Upgrading from $currentQn to $maxQn',
+                  '🎬 [SmartQuality] Video account advertised higher quality: '
+                  '$currentQn -> $maxQn',
                 );
 
                 final upgradePlayInfo = await BilibiliApi.getVideoPlayUrl(
