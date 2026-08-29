@@ -81,11 +81,15 @@ class PlaybackApi {
         'fourk': '1',
       };
 
-      final signedParams = SignUtils.signWithWbi(
-        params,
-        BaseApi.imgKey!,
-        BaseApi.subKey!,
-      );
+      var signedParams = params;
+      final imgKey = BaseApi.imgKey;
+      final subKey = BaseApi.subKey;
+      if (imgKey != null &&
+          imgKey.isNotEmpty &&
+          subKey != null &&
+          subKey.isNotEmpty) {
+        signedParams = SignUtils.signWithWbi(params, imgKey, subKey);
+      }
       final queryString = signedParams.entries
           .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
           .join('&');
