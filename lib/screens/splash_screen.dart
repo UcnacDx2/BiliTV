@@ -121,11 +121,11 @@ class _SplashScreenState extends State<SplashScreen> {
         preloadedVideos = videos;
 
         if (mounted && preloadedVideos.isNotEmpty) {
-          // 【用户请求】取消 12 个的数量限制，全部预加载
-          final int count = preloadedVideos.length;
+          // Warm only the first three rows. Remaining cards stay lazy-loaded.
+          final int count = preloadedVideos.length.clamp(0, 12);
 
           // 【核心修复】创建预加载任务列表
-          List<Future<void>> imageTasks = [];
+          final imageTasks = <Future<void> Function()>[];
 
           for (int i = 0; i < count; i++) {
             final url = preloadedVideos[i].pic;
@@ -136,8 +136,8 @@ class _SplashScreenState extends State<SplashScreen> {
               // 3. cacheManager: BiliCacheManager.instance (原本缺失导致路径不匹配)
               final optimizedUrl = ImageUrlUtils.getResizedUrl(
                 url,
-                width: 640,
-                height: 360,
+                width: 360,
+                height: 200,
               );
               final imageProvider = CachedNetworkImageProvider(
                 optimizedUrl,
@@ -147,15 +147,20 @@ class _SplashScreenState extends State<SplashScreen> {
               );
 
               imageTasks.add(
-                precacheImage(imageProvider, context).catchError((e) {
+                () => precacheImage(imageProvider, context).catchError((e) {
                   debugPrint('Image preload failed: $url');
                 }),
               );
             }
           }
-          // 并行等待所有图片下载
+          // Bound decode/download bursts on TV hardware.
           if (imageTasks.isNotEmpty) {
-            await Future.wait(imageTasks);
+            for (var start = 0; start < imageTasks.length; start += 4) {
+              final end = (start + 4).clamp(0, imageTasks.length);
+              await Future.wait(
+                imageTasks.sublist(start, end).map((task) => task()),
+              );
+            }
           }
         }
       } catch (e) {

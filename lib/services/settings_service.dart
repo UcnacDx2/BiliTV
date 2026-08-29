@@ -142,7 +142,7 @@ class SettingsService {
 
   /// Prefer a meaningful video first frame over a static cover image.
   static bool get useFirstFrameAsCover =>
-      _prefs?.getBool(_useFirstFrameAsCoverKey) ?? true;
+      _prefs?.getBool(_useFirstFrameAsCoverKey) ?? false;
 
   static Future<void> setUseFirstFrameAsCover(bool value) async {
     await init();

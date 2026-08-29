@@ -18,8 +18,13 @@ class VideoshotApi {
   static Future<VideoshotData?> getVideoshot({
     required String bvid,
     int? cid,
+    bool preloadImages = true,
   }) async {
-    final appData = await _getAppVideoshot(bvid: bvid, cid: cid);
+    final appData = await _getAppVideoshot(
+      bvid: bvid,
+      cid: cid,
+      preloadImages: preloadImages,
+    );
     if (appData != null) return appData;
 
     try {
@@ -46,7 +51,7 @@ class VideoshotApi {
 
             // 异步加载 pvdata（精确时间戳）和图片资源
             await _loadPvdata(videoshotData);
-            _preloadImages(videoshotData);
+            if (preloadImages) _preloadImages(videoshotData);
 
             return videoshotData;
           }
@@ -95,13 +100,11 @@ class VideoshotApi {
   /// Download one sprite sheet for the cover fallback service.
   static Future<Uint8List?> downloadSprite(String url) async {
     try {
-      final response = await http.get(
-        Uri.parse(url),
+      final file = await cacheManager.getSingleFile(
+        url,
         headers: BaseApi.getHeaders(),
       );
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return response.bodyBytes;
-      }
+      return await file.readAsBytes();
     } catch (e) {
       debugPrint('Failed to download videoshot sprite: $e');
     }
@@ -114,6 +117,7 @@ class VideoshotApi {
   static Future<VideoshotData?> _getAppVideoshot({
     required String bvid,
     required int? cid,
+    required bool preloadImages,
   }) async {
     final aid = BilibiliIdUtils.bv2av(bvid);
     if (aid <= 0 || cid == null || cid <= 0) return null;
@@ -134,7 +138,7 @@ class VideoshotApi {
       );
       await _loadPvdata(data);
       if (data.images.isEmpty || data.frameIndexes.isEmpty) return null;
-      _preloadImages(data);
+      if (preloadImages) _preloadImages(data);
       return data;
     } catch (e) {
       debugPrint('Failed to get APP videoshot: $e');

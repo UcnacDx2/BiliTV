@@ -17,6 +17,7 @@ class FirstFrameOrCover extends StatefulWidget {
     this.firstFrameUrl,
     this.bvid,
     this.cid,
+    this.resolveMissingFirstFrame = false,
     required this.width,
     required this.height,
     this.fit = BoxFit.cover,
@@ -26,6 +27,7 @@ class FirstFrameOrCover extends StatefulWidget {
   final String? firstFrameUrl;
   final String? bvid;
   final int? cid;
+  final bool resolveMissingFirstFrame;
   final double width;
   final double height;
   final BoxFit fit;
@@ -51,7 +53,8 @@ class _FirstFrameOrCoverState extends State<FirstFrameOrCover> {
     if (oldWidget.coverUrl != widget.coverUrl ||
         oldWidget.firstFrameUrl != widget.firstFrameUrl ||
         oldWidget.bvid != widget.bvid ||
-        oldWidget.cid != widget.cid) {
+        oldWidget.cid != widget.cid ||
+        oldWidget.resolveMissingFirstFrame != widget.resolveMissingFirstFrame) {
       _acceptedFirstFrame = null;
       _acceptedVideoShot = null;
       _inspect();
@@ -64,7 +67,8 @@ class _FirstFrameOrCoverState extends State<FirstFrameOrCover> {
 
     var firstFrame = widget.firstFrameUrl;
     var resolvedCid = widget.cid;
-    if ((firstFrame == null || firstFrame.isEmpty) &&
+    if (widget.resolveMissingFirstFrame &&
+        (firstFrame == null || firstFrame.isEmpty) &&
         widget.bvid?.isNotEmpty == true) {
       final info = await VideoApi.getVideoFirstFrameInfo(widget.bvid!);
       firstFrame = info?.url;

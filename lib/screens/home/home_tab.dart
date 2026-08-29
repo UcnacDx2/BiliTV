@@ -37,8 +37,10 @@ class HomeTabState extends State<HomeTab> {
   // 数据缓存
   final Map<int, List<Video>> _categoryVideos = {};
   final Map<int, bool> _categoryLoading = {};
+  final Map<int, bool> _categoryHasMore = {};
   final Map<int, int> _categoryPage = {};
   final Map<int, int> _categoryRefreshIdx = {};
+  final Map<int, int> _categoryRequestGeneration = {};
   bool _firstLoadDone = false;
   bool _usedPreloadedData = false; // 标记是否使用了预加载数据
   bool _isRefreshing = false; // 标记是否正在刷新中（用于控制分帧渲染）
@@ -48,6 +50,7 @@ class HomeTabState extends State<HomeTab> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _loadCategoryOrder();
     _categoryFocusNodes = List.generate(_categories.length, (_) => FocusNode());
 
@@ -88,6 +91,7 @@ class HomeTabState extends State<HomeTab> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     for (var node in _categoryFocusNodes) {
       node.dispose();
@@ -108,6 +112,7 @@ class HomeTabState extends State<HomeTab> {
   List<Video> get _currentVideos =>
       _categoryVideos[_selectedCategoryIndex] ?? [];
   bool get _isLoading => _categoryLoading[_selectedCategoryIndex] ?? false;
+  bool get _hasMore => _categoryHasMore[_selectedCategoryIndex] ?? true;
 
   Future<void> _loadVideosForCategory(
     int categoryIndex, {
@@ -115,13 +120,28 @@ class HomeTabState extends State<HomeTab> {
   }) async {
     if (_categoryLoading[categoryIndex] == true) return;
 
-    // ... (保持原有的分页逻辑) ...
-    final currentPage = _categoryPage[categoryIndex] ?? 1;
-    final currentRefreshIdx = _categoryRefreshIdx[categoryIndex] ?? 0;
+    // A refresh or a category switch can make an older request return late.
+    // Keep each category's response stream isolated so stale pages cannot
+    // append into the current feed.
+    final generation =
+        (_categoryRequestGeneration[categoryIndex] ?? 0) + 1;
+    _categoryRequestGeneration[categoryIndex] = generation;
+
+    final existingVideos = _categoryVideos[categoryIndex] ?? const <Video>[];
+    final isLoadMore = !refresh && existingVideos.isNotEmpty;
+    final requestedPage = refresh
+        ? 1
+        : isLoadMore
+        ? (_categoryPage[categoryIndex] ?? 1) + 1
+        : 1;
+    final requestedRefreshIdx = refresh
+        ? 0
+        : (_categoryRefreshIdx[categoryIndex] ?? 0);
 
     if (refresh) {
       _categoryPage[categoryIndex] = 1;
       _categoryRefreshIdx[categoryIndex] = 0;
+      _categoryHasMore[categoryIndex] = true;
       setState(() {
         _categoryLoading[categoryIndex] = true;
         _categoryVideos[categoryIndex] = [];
@@ -138,19 +158,17 @@ class HomeTabState extends State<HomeTab> {
       // 网络请求逻辑...
       switch (category) {
         case HomeCategory.recommend:
-          final idx = refresh ? 0 : currentRefreshIdx;
-          videos = await BilibiliApi.getRecommendVideos(idx: idx);
-          _categoryRefreshIdx[categoryIndex] = idx + 1;
+          videos = await BilibiliApi.getRecommendVideos(
+            idx: requestedRefreshIdx,
+          );
           break;
         case HomeCategory.popular:
-          final page = refresh ? 1 : currentPage;
-          videos = await BilibiliApi.getPopularVideos(page: page);
+          videos = await BilibiliApi.getPopularVideos(page: requestedPage);
           break;
         default:
-          final page = refresh ? 1 : currentPage;
           videos = await BilibiliApi.getRegionVideos(
             tid: category.tid,
-            page: page,
+            page: requestedPage,
           );
           break;
       }
@@ -158,21 +176,33 @@ class HomeTabState extends State<HomeTab> {
       videos = [];
     }
 
-    if (!mounted) return;
+    if (!mounted ||
+        generation != _categoryRequestGeneration[categoryIndex]) {
+      return;
+    }
     setState(() {
-      final page = _categoryPage[categoryIndex] ?? 1;
-
       // 插件过滤
       final filteredVideos = _filterVideos(videos);
+      final existingBvids = existingVideos.map((video) => video.bvid).toSet();
+      final uniqueVideos = isLoadMore
+          ? filteredVideos
+                .where((video) => existingBvids.add(video.bvid))
+                .toList()
+          : filteredVideos;
 
-      if (refresh || page == 1) {
-        _categoryVideos[categoryIndex] = filteredVideos;
+      if (!isLoadMore) {
+        _categoryVideos[categoryIndex] = uniqueVideos;
       } else {
-        _categoryVideos[categoryIndex] = [
-          ...(_categoryVideos[categoryIndex] ?? []),
-          ...filteredVideos,
-        ];
+        _categoryVideos[categoryIndex] = [...existingVideos, ...uniqueVideos];
       }
+      _categoryPage[categoryIndex] = requestedPage;
+      if (category == HomeCategory.recommend && videos.isNotEmpty) {
+        _categoryRefreshIdx[categoryIndex] = requestedRefreshIdx + 1;
+      }
+      // PiliPlus recommendation deliberately has no terminal page. Other
+      // feeds use the API page size to stop repeated empty requests.
+      _categoryHasMore[categoryIndex] =
+          category == HomeCategory.recommend || videos.length >= 20;
       _categoryLoading[categoryIndex] = false;
       _isRefreshing = false; // 刷新完成
 
@@ -185,12 +215,30 @@ class HomeTabState extends State<HomeTab> {
     });
   }
 
-  // ... (省略 _loadMore, _switchCategory 等辅助方法) ...
-  void _loadMore() {
-    if (_isLoading) return;
-    final page = (_categoryPage[_selectedCategoryIndex] ?? 1) + 1;
-    _categoryPage[_selectedCategoryIndex] = page;
-    _loadVideosForCategory(_selectedCategoryIndex);
+  void _onScroll() {
+    if (!_scrollController.hasClients || _isLoading || !_hasMore) return;
+    if (_scrollController.position.extentAfter < 500) {
+      _loadMore();
+    }
+  }
+
+  void _maybeLoadMore(int index) {
+    if (_isLoading || !_hasMore || index < _currentVideos.length - 8) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadMore();
+    });
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoading || !_hasMore) return;
+    await _loadVideosForCategory(_selectedCategoryIndex);
+  }
+
+  Future<void> _loadMoreAndFocus(int currentIndex) async {
+    final targetIndex = currentIndex + 4;
+    await _loadMore();
+    if (!mounted || targetIndex >= _currentVideos.length) return;
+    _getFocusNode(targetIndex).requestFocus();
   }
 
   void _switchCategory(int index) {
@@ -253,10 +301,6 @@ class HomeTabState extends State<HomeTab> {
                             ) {
                               final video = _currentVideos[index];
 
-                              if (index == _currentVideos.length - 4) {
-                                _loadMore();
-                              }
-
                               // 【优化】只有刷新时才使用交错加载
                               // 初始加载和从播放器返回时，图片已在缓存中，直接显示
                               final int? staggerIdx = _isRefreshing
@@ -299,8 +343,11 @@ class HomeTabState extends State<HomeTab> {
                                       ? () => _getFocusNode(
                                           index + 4,
                                         ).requestFocus()
-                                      : null,
+                                      : (_hasMore
+                                            ? () => _loadMoreAndFocus(index)
+                                            : null),
                                   onFocus: () {
+                                    _maybeLoadMore(index);
                                     if (!_scrollController.hasClients) {
                                       return;
                                     }
@@ -359,6 +406,13 @@ class HomeTabState extends State<HomeTab> {
                             }, childCount: _currentVideos.length),
                           ),
                         ),
+                        if (_isLoading && _currentVideos.isNotEmpty)
+                          const SliverToBoxAdapter(
+                            child: Padding(
+                              padding: EdgeInsets.all(20),
+                              child: Center(child: CircularProgressIndicator()),
+                            ),
+                          ),
                       ],
                     ),
                   ),

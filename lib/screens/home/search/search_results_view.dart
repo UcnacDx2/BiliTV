@@ -35,6 +35,7 @@ class _SearchResultsViewState extends State<SearchResultsView> {
   bool _isLoadingMore = false;
   bool _hasMore = true;
   bool _isRefreshing = false; // 用于控制分帧渲染
+  int _requestGeneration = 0;
 
   // Focus Management
   late final List<FocusNode> _sortFocusNodes;
@@ -74,7 +75,10 @@ class _SearchResultsViewState extends State<SearchResultsView> {
   // But generally self-contained.
 
   void _onScroll() {
-    if (!_isLoading && !_isLoadingMore && _hasMore) {
+    if (_scrollController.hasClients &&
+        !_isLoading &&
+        !_isLoadingMore &&
+        _hasMore) {
       if (_scrollController.position.pixels >=
           _scrollController.position.maxScrollExtent - 200) {
         _loadMore();
@@ -86,11 +90,32 @@ class _SearchResultsViewState extends State<SearchResultsView> {
     return _videoFocusNodes.putIfAbsent(index, () => FocusNode());
   }
 
+  @override
+  void didUpdateWidget(covariant SearchResultsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.query != widget.query) {
+      _searchVideos(reset: true, focusStart: true);
+    }
+  }
+
+  void _maybeLoadMore(int index) {
+    if (_isLoading || _isLoadingMore || !_hasMore) return;
+    if (index < _searchResults.length - 8) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadMore();
+    });
+  }
+
   Future<void> _searchVideos({
     bool reset = true,
     bool focusStart = false,
   }) async {
     if (widget.query.isEmpty) return;
+
+    final generation = reset ? ++_requestGeneration : _requestGeneration;
+    final requestedPage = reset ? 1 : _currentPage + 1;
+    final requestedOrder = _currentOrder;
+    final requestedQuery = widget.query;
 
     if (reset) {
       if (focusStart) {
@@ -98,6 +123,7 @@ class _SearchResultsViewState extends State<SearchResultsView> {
       }
       setState(() {
         _isLoading = true;
+        _isLoadingMore = false;
         _isRefreshing = true; // 开始刷新
         _currentPage = 1;
         _searchResults = [];
@@ -105,20 +131,41 @@ class _SearchResultsViewState extends State<SearchResultsView> {
       });
     }
 
-    final results = await BilibiliApi.searchVideos(
-      widget.query,
-      page: _currentPage,
-      order: _currentOrder,
-    );
+    List<Video> results;
+    try {
+      results = await BilibiliApi.searchVideos(
+        requestedQuery,
+        page: requestedPage,
+        order: requestedOrder,
+      );
+    } catch (_) {
+      if (mounted && generation == _requestGeneration) {
+        setState(() {
+          _isLoading = false;
+          _isLoadingMore = false;
+          _isRefreshing = false;
+        });
+      }
+      return;
+    }
 
-    if (!mounted) return;
+    if (!mounted ||
+        generation != _requestGeneration ||
+        requestedOrder != _currentOrder ||
+        requestedQuery != widget.query) {
+      return;
+    }
     setState(() {
       if (reset) {
         _searchResults = results;
       } else {
-        _searchResults.addAll(results);
+        final existingBvids = _searchResults.map((video) => video.bvid).toSet();
+        _searchResults.addAll(
+          results.where((video) => existingBvids.add(video.bvid)),
+        );
       }
 
+      _currentPage = requestedPage;
       _isLoading = false;
       _isLoadingMore = false;
       _isRefreshing = false; // 刷新完成
@@ -141,10 +188,16 @@ class _SearchResultsViewState extends State<SearchResultsView> {
   }
 
   Future<void> _loadMore() async {
-    if (_isLoadingMore || !_hasMore) return;
+    if (_isLoading || _isLoadingMore || !_hasMore) return;
     setState(() => _isLoadingMore = true);
-    _currentPage++;
     await _searchVideos(reset: false);
+  }
+
+  Future<void> _loadMoreAndFocus(int currentIndex) async {
+    final targetIndex = currentIndex + 4;
+    await _loadMore();
+    if (!mounted || targetIndex >= _searchResults.length) return;
+    _getFocusNode(targetIndex).requestFocus();
   }
 
   void _onVideoTap(Video video) {
@@ -241,9 +294,12 @@ class _SearchResultsViewState extends State<SearchResultsView> {
                       // 严格按列向下移动
                       onMoveDown: (index + 4 < _searchResults.length)
                           ? () => _getFocusNode(index + 4).requestFocus()
+                          : _hasMore
+                          ? () => _loadMoreAndFocus(index)
                           : null,
                       onBack: widget.onBackToKeyboard,
                       onFocus: () {
+                        _maybeLoadMore(index);
                         if (!_scrollController.hasClients) return;
 
                         final RenderObject? object = cardContext
@@ -346,10 +402,8 @@ class _SearchResultsViewState extends State<SearchResultsView> {
                           }
                         },
                         onFocus: () {
-                          if (!isSelected) {
-                            setState(() => _currentOrder = entry.key);
-                            _searchVideos(reset: true);
-                          }
+                          // Focus movement should not start a network search.
+                          // Confirm with select/enter, matching PiliPlus onTap.
                         },
                       ),
                     );
