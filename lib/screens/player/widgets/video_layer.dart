@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
+import 'mpv_video_player_compat.dart';
 
 class VideoLayer extends StatelessWidget {
   final VideoPlayerController? controller;

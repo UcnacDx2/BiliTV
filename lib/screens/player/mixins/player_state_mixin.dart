@@ -1,16 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import '../player_screen.dart';
 import '../widgets/settings_panel.dart';
+import '../widgets/mpv_video_player_compat.dart';
 import '../../../models/videoshot.dart';
+import '../../../services/watermark_region.dart';
 
 /// 播放器状态 Mixin
 /// 包含所有 State 变量
 mixin PlayerStateMixin on State<PlayerScreen> {
   // 控制器
   VideoPlayerController? videoController;
+  String? watermarkShaderPath;
+  int watermarkGeneration = 0;
+  List<WatermarkRegion> activeWatermarkRegions = const [];
   DanmakuController? danmakuController;
 
   // 插件跳过动作 (如空降助手)

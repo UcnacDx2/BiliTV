@@ -1,25 +1,31 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:media_kit/media_kit.dart';
 import '../../../models/video.dart' as models;
 import '../../../services/bilibili_api.dart';
 import '../../../services/settings_service.dart';
 import '../../../services/auth_service.dart';
-import '../../../services/mpd_generator.dart';
 import '../../../services/local_server.dart';
 import '../../../services/api/videoshot_api.dart';
 import '../widgets/settings_panel.dart';
 import '../player_screen.dart';
 import '../widgets/quality_picker_sheet.dart';
+import '../widgets/mpv_video_player_compat.dart';
 import 'player_state_mixin.dart';
 import '../../../core/plugin/plugin_manager.dart';
 import '../../../core/plugin/plugin_types.dart';
 import '../../../services/playback_progress_cache.dart';
 import '../../../services/account_store.dart';
 import '../../../services/api/base_api.dart';
+import '../../../services/video_shot_preview_service.dart';
+import '../../../services/watermark_detector.dart';
+import '../../../services/watermark_filter.dart';
+import '../../../services/watermark_region.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// 播放器逻辑 Mixin
 mixin PlayerActionMixin on PlayerStateMixin {
@@ -275,17 +281,9 @@ mixin PlayerActionMixin on PlayerStateMixin {
 
         String? playUrl;
 
-        // 如果有 DASH 数据，生成 MPD 并使用全局服务器
-        if (playInfo['dashData'] != null) {
-          final mpdContent = await MpdGenerator.generate(playInfo['dashData']);
-
-          // 使用全局 LocalServer 提供 MPD 内容 (纯内存)
-          LocalServer.instance.setMpdContent(mpdContent);
-          playUrl = LocalServer.instance.mpdUrl;
-        } else {
-          // 回退到直接 URL (mp4/flv)
-          playUrl = playInfo['url'];
-        }
+        // libmpv loads the signed DASH video URL directly. This preserves
+        // CDN request headers without routing media segments through MPD.
+        playUrl = playInfo['url'];
 
         // 创建 VideoPlayerController (带重试逻辑)
         const maxRetries = 3;
@@ -301,6 +299,10 @@ mixin PlayerActionMixin on PlayerStateMixin {
 
             // 初始化
             await videoController!.initialize();
+            final audioUrl = playInfo['audioUrl'] as String?;
+            if (audioUrl != null && audioUrl.isNotEmpty) {
+              await videoController!.player.setAudioTrack(AudioTrack.uri(audioUrl));
+            }
             break; // 成功，跳出循环
           } catch (e) {
             // 清理失败的控制器
@@ -324,6 +326,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
 
         // 监听播放状态变化
         _setupPlayerListeners();
+        unawaited(_startWatermarkProcessing());
 
         // 初始化插件
         final plugins = PluginManager().getEnabledPlugins<PlayerPlugin>();
@@ -452,6 +455,52 @@ mixin PlayerActionMixin on PlayerStateMixin {
   }
 
   /// 设置播放器监听器
+  /// Detects from official Bilibili videoshot thumbnails only, then updates
+  /// libmpv's GPU shader. The generation guard prevents a late request for a
+  /// previous video from changing the current player.
+  Future<void> _startWatermarkProcessing() async {
+    final player = videoController;
+    final videoCid = cid;
+    if (player == null || videoCid == null || !mounted) return;
+    final generation = ++watermarkGeneration;
+    try {
+      final directory = await getApplicationSupportDirectory();
+      final shaderPath = WatermarkFilter.pathFor(directory.path);
+      final preview = await VideoShotPreviewService.resolve(
+        bvid: widget.video.bvid,
+        cid: videoCid,
+      );
+      if (generation != watermarkGeneration || !identical(player, videoController)) return;
+      if (preview == null) {
+        await WatermarkFilter.clear(player.player, shaderPath);
+        watermarkShaderPath = shaderPath;
+        activeWatermarkRegions = const [];
+        return;
+      }
+      final codec = await ui.instantiateImageCodec(preview.bytes);
+      final image = (await codec.getNextFrame()).image;
+      try {
+        final frame = await WatermarkFrame.fromImage(image);
+        final detected = frame == null
+            ? null
+            : await WatermarkDetector.detectSingleBilibili(frame);
+        if (generation != watermarkGeneration || !identical(player, videoController)) return;
+        final regions = detected == null ? const <WatermarkRegion>[] : [detected];
+        await WatermarkFilter.apply(player.player, shaderPath, regions);
+        if (generation == watermarkGeneration && identical(player, videoController)) {
+          watermarkShaderPath = shaderPath;
+          activeWatermarkRegions = regions;
+          debugPrint('🎬 [Watermark] ${regions.isEmpty ? 'no stable anchor' : 'GPU shader applied'}');
+        }
+      } finally {
+        image.dispose();
+        codec.dispose();
+      }
+    } catch (error) {
+      debugPrint('🎬 [Watermark] detection failed: $error');
+    }
+  }
+
   void _setupPlayerListeners() {
     if (videoController == null) return;
 
@@ -533,6 +582,13 @@ mixin PlayerActionMixin on PlayerStateMixin {
   }
 
   Future<void> disposePlayer() async {
+    watermarkGeneration++;
+    final oldPlayer = videoController;
+    final oldShaderPath = watermarkShaderPath;
+    if (oldPlayer != null && oldShaderPath != null) {
+      await WatermarkFilter.clear(oldPlayer.player, oldShaderPath);
+    }
+    activeWatermarkRegions = const [];
     // 退出前上报进度并保存到本地缓存
     await reportPlaybackProgress();
 
@@ -1170,6 +1226,13 @@ mixin PlayerActionMixin on PlayerStateMixin {
     });
 
     // 清理旧播放器
+    watermarkGeneration++;
+    final oldEpisodePlayer = videoController;
+    final oldEpisodeShaderPath = watermarkShaderPath;
+    if (oldEpisodePlayer != null && oldEpisodeShaderPath != null) {
+      await WatermarkFilter.clear(oldEpisodePlayer.player, oldEpisodeShaderPath);
+    }
+    activeWatermarkRegions = const [];
     cancelPlayerListeners();
     await videoController?.dispose();
     videoController = null;
@@ -1193,14 +1256,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
 
         String? playUrl;
 
-        if (playInfo['dashData'] != null) {
-          final mpdContent = await MpdGenerator.generate(playInfo['dashData']);
-
-          LocalServer.instance.setMpdContent(mpdContent);
-          playUrl = LocalServer.instance.mpdUrl;
-        } else {
-          playUrl = playInfo['url'];
-        }
+        playUrl = playInfo['url'];
 
         // 创建新播放器
         videoController = VideoPlayerController.networkUrl(
@@ -1210,8 +1266,13 @@ mixin PlayerActionMixin on PlayerStateMixin {
         );
 
         await videoController!.initialize();
+        final audioUrl = playInfo['audioUrl'] as String?;
+        if (audioUrl != null && audioUrl.isNotEmpty) {
+          await videoController!.player.setAudioTrack(AudioTrack.uri(audioUrl));
+        }
 
         _setupPlayerListeners();
+        unawaited(_startWatermarkProcessing());
         await videoController!.play();
 
         setState(() => isLoading = false);
@@ -1302,14 +1363,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
 
       String? playUrl;
 
-      if (playInfo['dashData'] != null) {
-        final mpdContent = await MpdGenerator.generate(playInfo['dashData']);
-
-        LocalServer.instance.setMpdContent(mpdContent);
-        playUrl = LocalServer.instance.mpdUrl;
-      } else {
-        playUrl = playInfo['url'];
-      }
+      playUrl = playInfo['url'];
 
       // 创建新播放器
       videoController = VideoPlayerController.networkUrl(
@@ -1319,10 +1373,15 @@ mixin PlayerActionMixin on PlayerStateMixin {
       );
 
       await videoController!.initialize();
+      final audioUrl = playInfo['audioUrl'] as String?;
+      if (audioUrl != null && audioUrl.isNotEmpty) {
+        await videoController!.player.setAudioTrack(AudioTrack.uri(audioUrl));
+      }
       await videoController!.seekTo(position);
       resetDanmakuIndex(position);
 
       _setupPlayerListeners();
+      unawaited(_startWatermarkProcessing());
       await videoController!.play();
 
       // 恢复倍速
