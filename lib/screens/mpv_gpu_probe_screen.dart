@@ -56,7 +56,11 @@ class _MpvGpuProbeScreenState extends State<MpvGpuProbeScreen> {
     );
     _logSubscription = _player.stream.log.listen((log) {
       if (!mounted || log.level == 'error') return;
-      setState(() => _status = '${log.prefix}: ${log.text}');
+      // Keep the probe's high-level result readable; libmpv's informational
+      // logs are still visible through logcat and must not overwrite it.
+      if (_status.startsWith('初始化') || _status.startsWith('GPU')) {
+        setState(() => _status = '${log.prefix}: ${log.text}');
+      }
     });
     unawaited(_prepare());
   }
@@ -148,6 +152,7 @@ class _MpvGpuProbeScreenState extends State<MpvGpuProbeScreen> {
           : await WatermarkDetector.detectSingleBilibili(frame);
       _regions = detected == null ? const [] : [detected];
       await WatermarkFilter.apply(_player, _shaderPath!, _regions);
+      if (mounted) setState(() => _shaderEnabled = _regions.isNotEmpty);
       if (mounted) {
         setState(
           () => _status = _regions.isEmpty
