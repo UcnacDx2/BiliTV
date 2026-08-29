@@ -42,11 +42,19 @@ jobs:
         run: flutter test
 
       - name: Build GPU probe APK
-        run: flutter build apk --debug --dart-define=MPV_GPU_PROBE=true
+        run: |
+          flutter build apk --debug --dart-define=MPV_GPU_PROBE=true
+          mkdir -p build/watermark-artifacts
+          cp build/app/outputs/flutter-apk/app-debug.apk build/watermark-artifacts/BiliTV-watermark-gpu-probe.apk
+
+      - name: Build normal research APK
+        run: |
+          flutter build apk --debug
+          cp build/app/outputs/flutter-apk/app-debug.apk build/watermark-artifacts/BiliTV-watermark-player.apk
 
       - name: Upload GPU probe APK
         uses: actions/upload-artifact@v4
         with:
           name: BiliTV-watermark-gpu-probe
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: build/watermark-artifacts
           if-no-files-found: error
