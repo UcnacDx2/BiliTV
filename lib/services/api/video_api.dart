@@ -62,6 +62,24 @@ class VideoApi {
     return request;
   }
 
+  /// Seeds the shared first-frame lookup when a list API already provided it.
+  /// This avoids a second pagelist request when the same video is opened or
+  /// appears in another card.
+  static void rememberVideoFirstFrame({
+    required String? bvid,
+    required String? url,
+    int? cid,
+  }) {
+    if (bvid == null || bvid.isEmpty || url == null || url.isEmpty) return;
+    _firstFrameCache.remove(bvid);
+    _firstFrameCache[bvid] = Future.value(
+      VideoFirstFrameInfo(url: url, cid: cid),
+    );
+    while (_firstFrameCache.length > _firstFrameCacheMaxEntries) {
+      _firstFrameCache.remove(_firstFrameCache.keys.first);
+    }
+  }
+
   /// 获取热门视频 (无需登录)
   static Future<List<Video>> getPopularVideos({int page = 1}) async {
     try {

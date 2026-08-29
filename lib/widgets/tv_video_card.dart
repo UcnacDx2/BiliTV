@@ -197,6 +197,7 @@ class TvVideoCard extends StatelessWidget {
       firstFrameUrl: video.firstFrame,
       bvid: video.bvid,
       cid: video.cid > 0 ? video.cid : null,
+      resolveMissingFirstFrame: true,
       width: targetWidth.toDouble(),
       height: targetHeight.toDouble(),
     );
