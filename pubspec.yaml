@@ -39,6 +39,12 @@ dependencies:
   # 升级到 2.10.0+ 以支持 VideoViewType.platformView (SurfaceView 渲染模式)
   video_player: ^2.10.0
   video_player_android: ^2.9.1
+
+  # Watermark research backend (isolated from the production video_player
+  # path until the Android GPU VO probe passes on the target TV).
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
   
   # Danmaku (bullet comments)
   canvas_danmaku: ^0.3.1
@@ -79,6 +85,7 @@ flutter:
   assets:
     - assets/icons/startup.mp4
     - assets/icons/startup_frame.jpg
+    - assets/shaders/mpv_gpu_probe.glsl
     - assets/icons/home.svg
     - assets/icons/history.svg
     - assets/icons/search.svg

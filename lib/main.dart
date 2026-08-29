@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:media_kit/media_kit.dart';
 import 'screens/splash_screen.dart'; // 引入 Splash Screen
+import 'screens/mpv_gpu_probe_screen.dart';
 import 'package:bili_tv_app/core/plugin/plugin_manager.dart';
 import 'package:bili_tv_app/plugins/sponsor_block_plugin.dart';
 import 'package:bili_tv_app/plugins/ad_filter_plugin.dart';
@@ -10,6 +12,9 @@ import 'services/local_server.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Required by the isolated libmpv research probe. The production player
+  // remains on video_player until the GPU VO gate passes.
+  MediaKit.ensureInitialized();
 
   // 🔥 增大图片内存缓存，防止播放视频时主页图片被回收
   PaintingBinding.instance.imageCache.maximumSize = 500; // 500张图片
@@ -49,7 +54,9 @@ class BiliTvApp extends StatelessWidget {
         useMaterial3: true,
         focusColor: Colors.white.withValues(alpha: 0.1),
       ),
-      home: const SplashScreen(),
+      home: const bool.fromEnvironment('MPV_GPU_PROBE')
+          ? MpvGpuProbeScreen()
+          : SplashScreen(),
     );
   }
 }
