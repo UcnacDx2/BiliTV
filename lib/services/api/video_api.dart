@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 import 'package:http/http.dart' as http;
@@ -8,6 +9,29 @@ import '../account_store.dart';
 import '../../models/video.dart';
 import '../recommendation_filter.dart';
 import '../settings_service.dart';
+
+final class _AsyncGate {
+  _AsyncGate(this.limit);
+
+  final int limit;
+  int _active = 0;
+  final Queue<Completer<void>> _waiting = Queue();
+
+  Future<T> run<T>(Future<T> Function() action) async {
+    if (_active >= limit) {
+      final waiter = Completer<void>();
+      _waiting.add(waiter);
+      await waiter.future;
+    }
+    _active++;
+    try {
+      return await action();
+    } finally {
+      _active--;
+      if (_waiting.isNotEmpty) _waiting.removeFirst().complete();
+    }
+  }
+}
 
 /// 视频列表和搜索相关 API
 class VideoFirstFrameInfo {
@@ -20,6 +44,7 @@ class VideoApi {
   static const _firstFrameCacheMaxEntries = 320;
   static final LinkedHashMap<String, Future<VideoFirstFrameInfo?>>
   _firstFrameCache = LinkedHashMap();
+  static final _firstFrameGate = _AsyncGate(3);
 
   /// First-frame metadata used by the mobile-patches cover pipeline.
   static Future<VideoFirstFrameInfo?> getVideoFirstFrameInfo(String bvid) {
@@ -31,11 +56,13 @@ class VideoApi {
     }
     final request = () async {
       try {
-        final response = await http.get(
-          Uri.parse(
-            '${BaseApi.apiBase}/x/player/pagelist',
-          ).replace(queryParameters: {'bvid': bvid}),
-          headers: BaseApi.getHeaders(),
+        final response = await _firstFrameGate.run(
+          () => http.get(
+            Uri.parse(
+              '${BaseApi.apiBase}/x/player/pagelist',
+            ).replace(queryParameters: {'bvid': bvid}),
+            headers: BaseApi.getHeaders(),
+          ),
         );
         if (response.statusCode != 200) return null;
         final json = jsonDecode(response.body);

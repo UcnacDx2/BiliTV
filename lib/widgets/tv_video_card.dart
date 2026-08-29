@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/video.dart';
 import 'base_tv_card.dart';
-import 'staggered_image.dart';
 import 'first_frame_or_cover.dart';
 import 'conditional_marquee.dart';
 import '../utils/image_url_utils.dart';
@@ -192,24 +191,16 @@ class TvVideoCard extends StatelessWidget {
     const int targetWidth = 360;
     const int targetHeight = 200;
 
-    Widget buildCover() => FirstFrameOrCover(
+    // 交错加载只延迟首帧检查，普通封面必须立即显示。
+    return FirstFrameOrCover(
       coverUrl: ImageUrlUtils.getResizedUrl(video.pic, width: 360, height: 200),
       firstFrameUrl: video.firstFrame,
       bvid: video.bvid,
       cid: video.cid > 0 ? video.cid : null,
       resolveMissingFirstFrame: true,
+      inspectDelay: Duration(milliseconds: (staggerIndex ?? 0) * 80),
       width: targetWidth.toDouble(),
       height: targetHeight.toDouble(),
     );
-
-    // 交错加载只负责延迟构建，不能绕过首帧/雪碧图封面替换逻辑。
-    if (staggerIndex != null) {
-      return StaggeredBuilder(
-        delayMs: staggerIndex! * 80,
-        builder: (_) => buildCover(),
-      );
-    }
-
-    return buildCover();
   }
 }

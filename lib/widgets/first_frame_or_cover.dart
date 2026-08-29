@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -18,6 +19,7 @@ class FirstFrameOrCover extends StatefulWidget {
     this.bvid,
     this.cid,
     this.resolveMissingFirstFrame = false,
+    this.inspectDelay = Duration.zero,
     required this.width,
     required this.height,
     this.fit = BoxFit.cover,
@@ -28,6 +30,7 @@ class FirstFrameOrCover extends StatefulWidget {
   final String? bvid;
   final int? cid;
   final bool resolveMissingFirstFrame;
+  final Duration inspectDelay;
   final double width;
   final double height;
   final BoxFit fit;
@@ -40,6 +43,7 @@ class _FirstFrameOrCoverState extends State<FirstFrameOrCover> {
   String? _acceptedFirstFrame;
   Uint8List? _acceptedVideoShot;
   int _generation = 0;
+  Timer? _inspectTimer;
 
   @override
   void initState() {
@@ -47,14 +51,26 @@ class _FirstFrameOrCoverState extends State<FirstFrameOrCover> {
     SettingsService.useFirstFrameAsCoverNotifier.addListener(
       _onCoverSettingChanged,
     );
-    _inspect();
+    _scheduleInspect();
+  }
+
+  void _scheduleInspect() {
+    _inspectTimer?.cancel();
+    // Invalidate any in-flight work before waiting for the next inspect.
+    _generation++;
+    if (!SettingsService.useFirstFrameAsCover) return;
+    if (widget.inspectDelay <= Duration.zero) {
+      _inspect();
+    } else {
+      _inspectTimer = Timer(widget.inspectDelay, _inspect);
+    }
   }
 
   void _onCoverSettingChanged() {
     if (!mounted) return;
     _acceptedFirstFrame = null;
     _acceptedVideoShot = null;
-    _inspect();
+    _scheduleInspect();
     setState(() {});
   }
 
@@ -65,10 +81,11 @@ class _FirstFrameOrCoverState extends State<FirstFrameOrCover> {
         oldWidget.firstFrameUrl != widget.firstFrameUrl ||
         oldWidget.bvid != widget.bvid ||
         oldWidget.cid != widget.cid ||
-        oldWidget.resolveMissingFirstFrame != widget.resolveMissingFirstFrame) {
+        oldWidget.resolveMissingFirstFrame != widget.resolveMissingFirstFrame ||
+        oldWidget.inspectDelay != widget.inspectDelay) {
       _acceptedFirstFrame = null;
       _acceptedVideoShot = null;
-      _inspect();
+      _scheduleInspect();
     }
   }
 
@@ -114,6 +131,7 @@ class _FirstFrameOrCoverState extends State<FirstFrameOrCover> {
   @override
   void dispose() {
     _generation++;
+    _inspectTimer?.cancel();
     SettingsService.useFirstFrameAsCoverNotifier.removeListener(
       _onCoverSettingChanged,
     );
