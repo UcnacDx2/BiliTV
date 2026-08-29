@@ -103,6 +103,72 @@ abstract final class AccountStore {
 
   static Iterable<BiliAccount> get accounts => _accounts.values;
 
+  static Map<String, int> get roleAssignments => {
+    for (final entry in _roles.entries) entry.key.name: entry.value,
+  };
+
+  /// Export the complete account/role state for the local management page.
+  /// The caller is responsible for treating the returned data as sensitive.
+  static Future<Map<String, dynamic>> exportData() async {
+    await init();
+    return {
+      'version': 1,
+      'accounts': _accounts.values.map((account) => account.toJson()).toList(),
+      'roles': roleAssignments,
+    };
+  }
+
+  /// Replace account/role state from an exported JSON object.
+  static Future<int> importData(Map<String, dynamic> data) async {
+    await init();
+    final rawAccounts = data['accounts'];
+    if (rawAccounts is! List) {
+      throw const FormatException('accounts must be a list');
+    }
+
+    final imported = <int, BiliAccount>{};
+    for (final raw in rawAccounts) {
+      if (raw is! Map) continue;
+      final account = BiliAccount.fromJson(Map<String, dynamic>.from(raw));
+      if (account.mid > 0 && account.sessdata.isNotEmpty) {
+        imported[account.mid] = account;
+      }
+    }
+
+    final rawRoles = data['roles'];
+    final importedRoles = <AccountRole, int>{};
+    if (rawRoles is Map) {
+      for (final role in AccountRole.values) {
+        final rawMid = rawRoles[role.name];
+        final mid = rawMid is num ? rawMid.toInt() : int.tryParse('$rawMid');
+        if (mid != null && imported.containsKey(mid)) {
+          importedRoles[role] = mid;
+        }
+      }
+    }
+
+    _accounts
+      ..clear()
+      ..addAll(imported);
+    _roles
+      ..clear()
+      ..addAll(importedRoles);
+    await _prefs!.setString(
+      _accountsKey,
+      jsonEncode(_accounts.values.map((account) => account.toJson()).toList()),
+    );
+    for (final role in AccountRole.values) {
+      final key = '$_rolePrefix${role.name}';
+      final mid = _roles[role];
+      if (mid == null) {
+        await _prefs!.remove(key);
+      } else {
+        await _prefs!.setInt(key, mid);
+      }
+    }
+    return _accounts.length;
+  }
+
   static bool get isLoggedIn => accountFor(AccountRole.main) != null;
 
   static Future<void> addOrUpdate(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'account_store.dart';
 import '../plugins/ad_filter_plugin.dart';
 import '../plugins/danmaku_enhance_plugin.dart';
 import '../core/plugin/plugin_manager.dart';
@@ -172,8 +173,54 @@ class LocalServer {
     final path = request.uri.path;
     final method = request.method;
 
-    // 去广告插件 API
-    if (path.startsWith('/api/ad-filter/')) {
+    // 账号管理 API
+    if (path == '/api/accounts/role' && method == 'POST') {
+      final body = await _readJsonBody(request);
+      final roleName = body?['role'] as String?;
+      AccountRole? role;
+      if (roleName != null) {
+        role = AccountRole.values.firstWhere(
+          (item) => item.name == roleName,
+          orElse: () => AccountRole.main,
+        );
+      }
+      final mid = body?['mid'] is num
+          ? (body!['mid'] as num).toInt()
+          : int.tryParse('${body?['mid']}');
+      if (roleName == null ||
+          !AccountRole.values.any((item) => item.name == roleName)) {
+        _jsonResponse(request, {'error': 'Invalid role'}, 400);
+      } else {
+        await AccountStore.setRole(role!, mid);
+        _jsonResponse(request, {'success': true});
+      }
+    } else if (path == '/api/accounts/export' && method == 'GET') {
+      _jsonResponse(request, await AccountStore.exportData());
+    } else if (path == '/api/accounts/import' && method == 'POST') {
+      final body = await _readJsonBody(request);
+      if (body == null) {
+        _jsonResponse(request, {'error': 'Invalid JSON'}, 400);
+      } else {
+        try {
+          final count = await AccountStore.importData(body);
+          _jsonResponse(request, {'success': true, 'count': count});
+        } on FormatException catch (e) {
+          _jsonResponse(request, {'error': e.message}, 400);
+        }
+      }
+    } else if (path == '/api/accounts' && method == 'GET') {
+      final data = await AccountStore.exportData();
+      final accounts = (data['accounts'] as List).map((raw) {
+        final account = Map<String, dynamic>.from(raw as Map);
+        return {
+          'mid': account['mid'],
+          'uname': account['uname'],
+          'face': account['face'],
+          'isVip': account['isVip'],
+        };
+      }).toList();
+      _jsonResponse(request, {'accounts': accounts, 'roles': data['roles']});
+    } else if (path.startsWith('/api/ad-filter/')) {
       await _handleAdFilterApi(request, path, method);
     }
     // 弹幕增强插件 API
@@ -645,6 +692,19 @@ class LocalServer {
 <body>
   <div class="container">
     <h1>📺 BiliTV 插件管理</h1>
+
+    <!-- 账号分工与凭据备份 -->
+    <div class="card">
+      <h2>👥 账号分工</h2>
+      <p style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:12px;">视频解析、观看历史和心跳可以分别使用不同账号。</p>
+      <div id="accountRoles"></div>
+      <div class="input-row" style="margin-top:16px;">
+        <button onclick="exportAccounts()">导出登录凭据</button>
+        <button onclick="document.getElementById('accountImport').click()">导入登录凭据</button>
+        <input id="accountImport" type="file" accept="application/json" style="display:none" onchange="importAccounts(event)">
+      </div>
+      <p style="font-size:12px;color:#ffcc80;">凭据文件包含 Cookie 和 Token，仅限在可信设备间传输。</p>
+    </div>
     
     <!-- 去广告插件 -->
     <div class="card">
@@ -735,8 +795,10 @@ class LocalServer {
   <script>
     let adConfig = {};
     let danmakuConfig = {};
+    const roleLabels = { main: '主账号', video: '视频解析', history: '观看历史', heartbeat: '播放心跳' };
 
     async function loadData() {
+      loadAccounts();
       // 加载去广告配置
       try {
         const configRes = await fetch('/api/ad-filter/config');
@@ -771,6 +833,39 @@ class LocalServer {
       loadDanmakuKeywords('partial');
       // 加载全词匹配关键词
       loadDanmakuKeywords('full');
+    }
+
+    async function loadAccounts() {
+      try {
+        const data = await (await fetch('/api/accounts')).json();
+        const byMid = Object.fromEntries((data.accounts || []).map(a => [String(a.mid), a]));
+        document.getElementById('accountRoles').innerHTML = Object.entries(roleLabels).map(([role, label]) => {
+          const mid = data.roles && data.roles[role] ? String(data.roles[role]) : '';
+          const options = '<option value="">未分配</option>' + Object.values(byMid).map(a => `<option value="\${a.mid}" \${String(a.mid) === mid ? 'selected' : ''}>\${a.uname || '账号'} (\${a.mid})</option>`).join('');
+          return `<div class="switch-row"><span>\${label}</span><select id="role-\${role}" onchange="setRole('\${role}', this.value)" style="min-width:220px;padding:8px;background:#252542;color:#fff;border-radius:8px">\${options}</select></div>`;
+        }).join('');
+      } catch (e) { console.error(e); }
+    }
+
+    async function setRole(role, mid) {
+      await fetch('/api/accounts/role', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({role, mid: mid ? Number(mid) : null}) });
+    }
+
+    async function exportAccounts() {
+      const data = await (await fetch('/api/accounts/export')).json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'bilitv-accounts.json'; link.click(); URL.revokeObjectURL(link.href);
+    }
+
+    async function importAccounts(event) {
+      const file = event.target.files[0]; if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        const res = await fetch('/api/accounts/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+        if (!res.ok) throw new Error((await res.json()).error || '导入失败');
+        alert('导入成功'); loadAccounts();
+      } catch (e) { alert('导入失败：' + e.message); }
+      event.target.value = '';
     }
 
     async function loadDanmakuKeywords(type) {
