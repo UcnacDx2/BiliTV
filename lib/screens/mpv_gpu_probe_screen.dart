@@ -1,11 +1,20 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
+import '../services/api/video_api.dart';
+import '../services/bilibili_api.dart';
+import '../services/account_store.dart';
+import '../services/api/videoshot_api.dart';
+import '../services/video_shot_preview_service.dart';
+import '../services/watermark_detector.dart';
+import '../services/watermark_filter.dart';
+import '../services/watermark_region.dart';
 
 /// Phase 0 feasibility screen for the watermark research branch.
 ///
@@ -25,6 +34,7 @@ class _MpvGpuProbeScreenState extends State<MpvGpuProbeScreen> {
   String? _shaderPath;
   String _status = '初始化 libmpv GPU 输出…';
   bool _shaderEnabled = false;
+  List<WatermarkRegion> _regions = const [];
   StreamSubscription<PlayerLog>? _logSubscription;
 
   @override
@@ -56,23 +66,85 @@ class _MpvGpuProbeScreenState extends State<MpvGpuProbeScreen> {
       await shaderFile.writeAsBytes(shaderData.buffer.asUint8List());
       _shaderPath = shaderFile.path;
       await _player.open(Media('asset:///assets/icons/startup.mp4'));
-      await _setShader(true);
-      if (mounted) setState(() => _status = '播放中：右上角红色标记应来自 GLSL hook');
+      if (mounted) setState(() => _status = 'GPU 已就绪，正在解析真实 Bilibili 流…');
+      await _tryRealBilibiliStream();
     } catch (error) {
       if (mounted) setState(() => _status = 'GPU probe failed: $error');
+    }
+  }
+
+  Future<void> _tryRealBilibiliStream() async {
+    final videos = await VideoApi.getPopularVideos();
+    if (videos.isEmpty) {
+      await _setShader(true);
+      if (mounted) setState(() => _status = '真实流解析失败；已保留 GPU Shader 探针');
+      return;
+    }
+    final video = videos.firstWhere((item) => !item.isLive && item.bvid.isNotEmpty, orElse: () => videos.first);
+    final info = await BilibiliApi.getVideoInfo(video.bvid, role: AccountRole.video);
+    final resolvedCid = (info?['cid'] as num?)?.toInt() ?? video.cid;
+    if (resolvedCid <= 0) throw StateError('无法取得 CID');
+    final playInfo = await BilibiliApi.getVideoPlayUrl(
+      bvid: video.bvid,
+      cid: resolvedCid,
+      qn: 80,
+    );
+    final url = playInfo?['url'] as String?;
+    if (url == null || url.isEmpty) throw StateError('未取得视频 URL: ${playInfo?['error'] ?? 'unknown'}');
+    final headers = AccountStore.headers(AccountRole.video)
+      ..['Origin'] = 'https://www.bilibili.com';
+    await _player.open(Media(url, httpHeaders: headers));
+    final audioUrl = playInfo?['audioUrl'] as String?;
+    if (audioUrl != null && audioUrl.isNotEmpty) {
+      await _player.setAudioTrack(AudioTrack.uri(audioUrl));
+    }
+    if (mounted) setState(() => _status = '真实流播放中：${video.bvid}，正在读取官方雪碧图…');
+    await _detectFromOfficialVideoshot(video.bvid, resolvedCid);
+  }
+
+  Future<void> _detectFromOfficialVideoshot(String bvid, int cid) async {
+    final data = await VideoshotApi.getVideoshot(bvid: bvid, cid: cid, preloadImages: false);
+    if (data == null || data.images.isEmpty) {
+      await _setShader(true);
+      if (mounted) setState(() => _status = '真实流正常；官方雪碧图不可用，已启用探针 Shader');
+      return;
+    }
+    // Use the existing official-sprite crop service. It never captures the
+    // rendered player surface and therefore remains seek-independent.
+    final preview = await VideoShotPreviewService.resolve(bvid: bvid, cid: cid);
+    if (preview == null) {
+      await _setShader(true);
+      if (mounted) setState(() => _status = '真实流正常；官方雪碧图没有可用帧');
+      return;
+    }
+    final codec = await ui.instantiateImageCodec(preview.bytes);
+    final image = (await codec.getNextFrame()).image;
+    try {
+      final frame = await WatermarkFrame.fromImage(image);
+      final detected = frame == null ? null : await WatermarkDetector.detectSingleBilibili(frame);
+      _regions = detected == null ? const [] : [detected];
+      await WatermarkFilter.apply(_player, _shaderPath!, _regions);
+      if (mounted) setState(() => _status = _regions.isEmpty ? '真实流正常；未检测到 bilibili 锚点' : '真实流 + 官方雪碧图检测成功，已启用 GPU 去水印');
+    } finally {
+      image.dispose();
+      codec.dispose();
     }
   }
 
   Future<void> _setShader(bool enabled) async {
     final path = _shaderPath;
     if (path == null) return;
-    final platform = _player.platform;
-    if (platform is! NativePlayer) return;
-    await platform.setProperty(
-      'glsl-shaders',
-      enabled ? path : '',
-      waitForInitialization: false,
-    );
+    if (enabled) {
+      final platform = _player.platform;
+      if (platform is NativePlayer) {
+        await platform.command(['change-list', 'glsl-shaders', 'append', path]);
+      }
+    } else {
+      final platform = _player.platform;
+      if (platform is NativePlayer) {
+        await platform.command(['change-list', 'glsl-shaders', 'remove', path]);
+      }
+    }
     if (mounted) setState(() => _shaderEnabled = enabled);
   }
 
