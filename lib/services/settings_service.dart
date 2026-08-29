@@ -40,10 +40,16 @@ class SettingsService {
   static const String _useFirstFrameAsCoverKey = 'use_first_frame_as_cover';
   static const String _useHardwareDecodeKey = 'use_hardware_decode';
   static SharedPreferences? _prefs;
+  static final ValueNotifier<bool> useFirstFrameAsCoverNotifier =
+      ValueNotifier<bool>(false);
 
   /// 初始化
   static Future<void> init() async {
     _prefs ??= await SharedPreferences.getInstance();
+    final value = _prefs!.getBool(_useFirstFrameAsCoverKey) ?? false;
+    if (useFirstFrameAsCoverNotifier.value != value) {
+      useFirstFrameAsCoverNotifier.value = value;
+    }
   }
 
   /// 显示 Toast 提示
@@ -147,6 +153,9 @@ class SettingsService {
   static Future<void> setUseFirstFrameAsCover(bool value) async {
     await init();
     await _prefs!.setBool(_useFirstFrameAsCoverKey, value);
+    if (useFirstFrameAsCoverNotifier.value != value) {
+      useFirstFrameAsCoverNotifier.value = value;
+    }
   }
 
   // 推荐视频最低时长（秒），0 表示不过滤。

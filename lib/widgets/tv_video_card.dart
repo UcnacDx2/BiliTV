@@ -192,23 +192,7 @@ class TvVideoCard extends StatelessWidget {
     const int targetWidth = 360;
     const int targetHeight = 200;
 
-    // 交错加载逻辑
-    if (staggerIndex != null) {
-      return StaggeredImage(
-        imageUrl: ImageUrlUtils.getResizedUrl(
-          video.pic,
-          width: 360,
-          height: 200,
-        ),
-        delayMs: staggerIndex! * 80,
-        fit: BoxFit.cover,
-        cacheWidth: targetWidth,
-        cacheHeight: targetHeight,
-      );
-    }
-
-    // 标准加载逻辑 (用于预加载过的数据或不需要交错的数据)
-    return FirstFrameOrCover(
+    Widget buildCover() => FirstFrameOrCover(
       coverUrl: ImageUrlUtils.getResizedUrl(video.pic, width: 360, height: 200),
       firstFrameUrl: video.firstFrame,
       bvid: video.bvid,
@@ -216,5 +200,15 @@ class TvVideoCard extends StatelessWidget {
       width: targetWidth.toDouble(),
       height: targetHeight.toDouble(),
     );
+
+    // 交错加载只负责延迟构建，不能绕过首帧/雪碧图封面替换逻辑。
+    if (staggerIndex != null) {
+      return StaggeredBuilder(
+        delayMs: staggerIndex! * 80,
+        builder: (_) => buildCover(),
+      );
+    }
+
+    return buildCover();
   }
 }

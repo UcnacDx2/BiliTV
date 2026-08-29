@@ -44,7 +44,18 @@ class _FirstFrameOrCoverState extends State<FirstFrameOrCover> {
   @override
   void initState() {
     super.initState();
+    SettingsService.useFirstFrameAsCoverNotifier.addListener(
+      _onCoverSettingChanged,
+    );
     _inspect();
+  }
+
+  void _onCoverSettingChanged() {
+    if (!mounted) return;
+    _acceptedFirstFrame = null;
+    _acceptedVideoShot = null;
+    _inspect();
+    setState(() {});
   }
 
   @override
@@ -98,6 +109,9 @@ class _FirstFrameOrCoverState extends State<FirstFrameOrCover> {
   @override
   void dispose() {
     _generation++;
+    SettingsService.useFirstFrameAsCoverNotifier.removeListener(
+      _onCoverSettingChanged,
+    );
     super.dispose();
   }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/settings_service.dart'; // BiliCacheManager
@@ -76,5 +78,65 @@ class _StaggeredImageState extends State<StaggeredImage> {
         ),
       ),
     );
+  }
+}
+
+/// Delays building an arbitrary child without changing the child's loading
+/// strategy. This is important for cards that need FirstFrameOrCover logic.
+class StaggeredBuilder extends StatefulWidget {
+  final int delayMs;
+  final WidgetBuilder builder;
+
+  const StaggeredBuilder({
+    super.key,
+    required this.delayMs,
+    required this.builder,
+  });
+
+  @override
+  State<StaggeredBuilder> createState() => _StaggeredBuilderState();
+}
+
+class _StaggeredBuilderState extends State<StaggeredBuilder> {
+  Timer? _timer;
+  bool _shouldBuild = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleBuild();
+  }
+
+  @override
+  void didUpdateWidget(covariant StaggeredBuilder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.delayMs != widget.delayMs && !_shouldBuild) {
+      _timer?.cancel();
+      _scheduleBuild();
+    }
+  }
+
+  void _scheduleBuild() {
+    if (widget.delayMs <= 0) {
+      _shouldBuild = true;
+    } else {
+      _timer = Timer(Duration(milliseconds: widget.delayMs), () {
+        if (mounted) setState(() => _shouldBuild = true);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_shouldBuild) {
+      return Container(color: Colors.grey[900]);
+    }
+    return widget.builder(context);
   }
 }
