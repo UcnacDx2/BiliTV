@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'base_api.dart';
+import 'sign_utils.dart';
 import '../../models/videoshot.dart';
+import '../id_utils.dart';
 
 /// 视频快照 API
 class VideoshotApi {
@@ -17,6 +19,9 @@ class VideoshotApi {
     required String bvid,
     int? cid,
   }) async {
+    final appData = await _getAppVideoshot(bvid: bvid, cid: cid);
+    if (appData != null) return appData;
+
     try {
       final params = <String, String>{'bvid': bvid};
       if (cid != null) {
@@ -40,9 +45,7 @@ class VideoshotApi {
             final videoshotData = VideoshotData.fromJson(data);
 
             // 异步加载 pvdata（精确时间戳）和图片资源
-            if (videoshotData.pvdataUrl != null) {
-              _loadPvdata(videoshotData);
-            }
+            await _loadPvdata(videoshotData);
             _preloadImages(videoshotData);
 
             return videoshotData;
@@ -88,6 +91,56 @@ class VideoshotApi {
       fileService: HttpFileService(),
     ),
   );
+
+  /// Download one sprite sheet for the cover fallback service.
+  static Future<Uint8List?> downloadSprite(String url) async {
+    try {
+      final response = await http.get(
+        Uri.parse(url),
+        headers: BaseApi.getHeaders(),
+      );
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return response.bodyBytes;
+      }
+    } catch (e) {
+      debugPrint('Failed to download videoshot sprite: $e');
+    }
+    return null;
+  }
+
+  /// The web endpoint is not consistent about returning `index`. The signed
+  /// APP endpoint is the same source used by mobile-patches and normally
+  /// includes a complete frame index, so prefer it before the web fallback.
+  static Future<VideoshotData?> _getAppVideoshot({
+    required String bvid,
+    required int? cid,
+  }) async {
+    final aid = BilibiliIdUtils.bv2av(bvid);
+    if (aid <= 0 || cid == null || cid <= 0) return null;
+    try {
+      final params = SignUtils.signForMobileApp({
+        'aid': aid.toString(),
+        'cid': cid.toString(),
+      });
+      final uri = Uri.parse(
+        'https://app.bilibili.com/x/v2/view/video/shot',
+      ).replace(queryParameters: params);
+      final response = await http.get(uri, headers: BaseApi.getHeaders());
+      if (response.statusCode != 200) return null;
+      final json = jsonDecode(response.body);
+      if (json['code'] != 0 || json['data'] is! Map) return null;
+      final data = VideoshotData.fromJson(
+        Map<String, dynamic>.from(json['data'] as Map),
+      );
+      await _loadPvdata(data);
+      if (data.images.isEmpty || data.frameIndexes.isEmpty) return null;
+      _preloadImages(data);
+      return data;
+    } catch (e) {
+      debugPrint('Failed to get APP videoshot: $e');
+      return null;
+    }
+  }
 
   /// 预加载雪碧图图片到缓存
   static Future<void> _preloadImages(VideoshotData data) async {

@@ -18,9 +18,17 @@ import 'player_state_mixin.dart';
 import '../../../core/plugin/plugin_manager.dart';
 import '../../../core/plugin/plugin_types.dart';
 import '../../../services/playback_progress_cache.dart';
+import '../../../services/account_store.dart';
+import '../../../services/api/base_api.dart';
 
 /// 播放器逻辑 Mixin
 mixin PlayerActionMixin on PlayerStateMixin {
+  Map<String, String> _videoPlaybackHeaders() {
+    final headers = AccountStore.headers(AccountRole.video);
+    headers['Origin'] = 'https://www.bilibili.com';
+    return headers;
+  }
+
   // 初始化
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -58,10 +66,15 @@ mixin PlayerActionMixin on PlayerStateMixin {
 
     try {
       final videoInfo = await BilibiliApi.getVideoInfo(widget.video.bvid);
+      final videoMid = AuthService.videoAccount?.mid;
+      final historyMid = AuthService.historyAccount?.mid;
+      final hasSplitPlaybackAccounts =
+          videoMid != null && historyMid != null && videoMid != historyMid;
 
       // 🔥 预先获取本地缓存（在 setState 外部执行 async 操作）
       final cachedRecord = await PlaybackProgressCache.getCachedRecord(
         widget.video.bvid,
+        accountMid: historyMid,
       );
 
       if (videoInfo != null) {
@@ -71,7 +84,8 @@ mixin PlayerActionMixin on PlayerStateMixin {
             episodes = videoInfo['pages'] ?? [];
 
             // 优先检查历史记录中的 cid
-            if (videoInfo['history'] != null &&
+            if (!hasSplitPlaybackAccounts &&
+                videoInfo['history'] != null &&
                 videoInfo['history']['cid'] != null) {
               cid = videoInfo['history']['cid'];
               debugPrint('🎬 [Init] Using API history cid: $cid');
@@ -166,6 +180,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
       }
 
       String? lastError;
+      Map<String, dynamic>? resolvedPlayInfo;
 
       // 尝试每个编码器
       codecLoop:
@@ -229,6 +244,27 @@ mixin PlayerActionMixin on PlayerStateMixin {
           continue codecLoop;
         }
 
+        // The history account may point at another page of a multi-P video.
+        // Resolve that page before constructing the controller so the stream
+        // and resume position refer to the same CID.
+        final resumeCid = BaseApi.toInt(playInfo['lastPlayCid']);
+        if (resumeCid > 0 &&
+            resumeCid != cid &&
+            episodes.any((page) => BaseApi.toInt(page['cid']) == resumeCid)) {
+          cid = resumeCid;
+          playInfo = await BilibiliApi.getVideoPlayUrl(
+            bvid: widget.video.bvid,
+            cid: cid!,
+            qn: currentQuality,
+            forceCodec: tryCodec,
+          );
+          if (playInfo == null || playInfo['error'] != null) {
+            lastError = '解析历史分P播放地址失败';
+            continue codecLoop;
+          }
+        }
+        resolvedPlayInfo = playInfo;
+
         if (!mounted) return;
         qualities = List<Map<String, dynamic>>.from(
           playInfo['qualities'] ?? [],
@@ -259,14 +295,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
           try {
             videoController = VideoPlayerController.networkUrl(
               Uri.parse(playUrl!),
-              httpHeaders: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-                'Referer': 'https://www.bilibili.com/',
-                'Origin': 'https://www.bilibili.com',
-                if (AuthService.sessdata != null)
-                  'Cookie': 'SESSDATA=${AuthService.sessdata}',
-              },
+              httpHeaders: _videoPlaybackHeaders(),
               viewType: VideoViewType.platformView,
             );
 
@@ -310,7 +339,21 @@ mixin PlayerActionMixin on PlayerStateMixin {
         // 1. 如果 API 返回了历史记录，无条件使用历史记录的进度 (解决多端同步和本地列表过期问题)
         // 2. 如果没有 API 历史，才使用本地列表传进来的 progress
         int historyProgress = 0;
-        if (videoInfo != null && videoInfo['history'] != null) {
+        final resolvedProgress = BaseApi.toInt(
+          resolvedPlayInfo['lastPlayTime'],
+        );
+        final resolvedProgressCid = BaseApi.toInt(
+          resolvedPlayInfo['lastPlayCid'],
+        );
+        if (resolvedProgress > 0 &&
+            (resolvedProgressCid == 0 || resolvedProgressCid == cid)) {
+          historyProgress = resolvedProgress;
+          debugPrint(
+            '🎬 [Resume] Using resolved account history: cid=$resolvedProgressCid, progress=$historyProgress',
+          );
+        } else if (!hasSplitPlaybackAccounts &&
+            videoInfo != null &&
+            videoInfo['history'] != null) {
           final historyData = videoInfo['history'];
           debugPrint(
             '🎬 [Resume] API History: cid=${historyData['cid']}, progress=${historyData['progress']}',
@@ -502,6 +545,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
           widget.video.bvid,
           cid!,
           currentPos,
+          accountMid: AuthService.historyAccount?.mid,
         );
         debugPrint(
           '🎬 [Cache] Saved progress: bvid=${widget.video.bvid}, cid=$cid, pos=$currentPos',
@@ -1161,14 +1205,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
         // 创建新播放器
         videoController = VideoPlayerController.networkUrl(
           Uri.parse(playUrl!),
-          httpHeaders: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-            'Referer': 'https://www.bilibili.com/',
-            'Origin': 'https://www.bilibili.com',
-            if (AuthService.sessdata != null)
-              'Cookie': 'SESSDATA=${AuthService.sessdata}',
-          },
+          httpHeaders: _videoPlaybackHeaders(),
           viewType: VideoViewType.platformView,
         );
 
@@ -1277,14 +1314,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
       // 创建新播放器
       videoController = VideoPlayerController.networkUrl(
         Uri.parse(playUrl!),
-        httpHeaders: {
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-          'Referer': 'https://www.bilibili.com/',
-          'Origin': 'https://www.bilibili.com',
-          if (AuthService.sessdata != null)
-            'Cookie': 'SESSDATA=${AuthService.sessdata}',
-        },
+        httpHeaders: _videoPlaybackHeaders(),
         viewType: VideoViewType.platformView,
       );
 

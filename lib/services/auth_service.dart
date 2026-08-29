@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'account_store.dart';
 
 /// 登录认证服务
 class AuthService {
@@ -35,31 +36,62 @@ class AuthService {
     _face = _prefs?.getString(_keyFace);
     _uname = _prefs?.getString(_keyUname);
     _isVip = _prefs?.getBool(_keyIsVip) ?? false;
+
+    await AccountStore.init();
+    // Migrate the pre-multi-account TV login once.
+    if (_mid != null &&
+        _sessdata?.isNotEmpty == true &&
+        !AccountStore.accounts.any((account) => account.mid == _mid)) {
+      await AccountStore.addOrUpdate(
+        BiliAccount(
+          mid: _mid!,
+          accessToken: _accessToken ?? '',
+          refreshToken: _refreshToken ?? '',
+          sessdata: _sessdata!,
+          biliJct: _biliJct ?? '',
+          face: _face,
+          uname: _uname,
+          isVip: _isVip,
+        ),
+      );
+    }
   }
 
   /// 是否已登录
-  static bool get isLoggedIn => _sessdata != null && _sessdata!.isNotEmpty;
+  static bool get isLoggedIn => AccountStore.isLoggedIn;
 
   /// 获取 SESSDATA
-  static String? get sessdata => _sessdata;
+  static String? get sessdata =>
+      AccountStore.accountFor(AccountRole.main)?.sessdata ?? _sessdata;
 
   /// 获取 CSRF token
-  static String? get biliJct => _biliJct;
+  static String? get biliJct =>
+      AccountStore.accountFor(AccountRole.main)?.biliJct ?? _biliJct;
 
   /// 获取用户 mid
-  static int? get mid => _mid;
+  static int? get mid => AccountStore.accountFor(AccountRole.main)?.mid ?? _mid;
 
   /// 获取 access_token
-  static String? get accessToken => _accessToken;
+  static String? get accessToken =>
+      AccountStore.accountFor(AccountRole.main)?.accessToken ?? _accessToken;
 
   /// 获取用户头像
-  static String? get face => _face;
+  static String? get face =>
+      AccountStore.accountFor(AccountRole.main)?.face ?? _face;
 
   /// 获取用户昵称
-  static String? get uname => _uname;
+  static String? get uname =>
+      AccountStore.accountFor(AccountRole.main)?.uname ?? _uname;
 
   /// 是否是大会员
-  static bool get isVip => _isVip;
+  static bool get isVip =>
+      AccountStore.accountFor(AccountRole.main)?.isVip ?? _isVip;
+
+  static BiliAccount? get videoAccount =>
+      AccountStore.accountFor(AccountRole.video);
+
+  static BiliAccount? get historyAccount =>
+      AccountStore.accountFor(AccountRole.history);
 
   /// 保存 TV 登录凭证
   static Future<void> saveLoginCredentials({
@@ -92,6 +124,18 @@ class AuthService {
         }
       }
     }
+
+    if (_mid != null && _sessdata?.isNotEmpty == true) {
+      await AccountStore.addOrUpdate(
+        BiliAccount(
+          mid: _mid!,
+          accessToken: _accessToken ?? '',
+          refreshToken: _refreshToken ?? '',
+          sessdata: _sessdata!,
+          biliJct: _biliJct ?? '',
+        ),
+      );
+    }
   }
 
   /// 保存用户信息 (从 nav 接口获取)
@@ -109,10 +153,19 @@ class AuthService {
       _isVip = isVip;
       await _prefs?.setBool(_keyIsVip, isVip);
     }
+    if (_mid != null) {
+      await AccountStore.updateUserInfo(
+        mid: _mid!,
+        face: face,
+        uname: uname,
+        isVip: isVip ?? _isVip,
+      );
+    }
   }
 
   /// 退出登录
   static Future<void> logout() async {
+    await AccountStore.logout();
     _accessToken = null;
     _refreshToken = null;
     _sessdata = null;

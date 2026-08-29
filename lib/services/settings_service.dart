@@ -37,6 +37,7 @@ class BiliCacheManager {
 
 /// 设置服务
 class SettingsService {
+  static const String _useFirstFrameAsCoverKey = 'use_first_frame_as_cover';
   static const String _useHardwareDecodeKey = 'use_hardware_decode';
   static SharedPreferences? _prefs;
 
@@ -137,6 +138,30 @@ class SettingsService {
   static Future<void> setUseHardwareDecode(bool value) async {
     await init();
     await _prefs!.setBool(_useHardwareDecodeKey, value);
+  }
+
+  /// Prefer a meaningful video first frame over a static cover image.
+  static bool get useFirstFrameAsCover =>
+      _prefs?.getBool(_useFirstFrameAsCoverKey) ?? true;
+
+  static Future<void> setUseFirstFrameAsCover(bool value) async {
+    await init();
+    await _prefs!.setBool(_useFirstFrameAsCoverKey, value);
+  }
+
+  // 推荐视频最低时长（秒），0 表示不过滤。
+  static const String _minimumRecommendDurationKey =
+      'minimum_recommend_duration';
+
+  static int get minimumRecommendDuration =>
+      _prefs?.getInt(_minimumRecommendDurationKey) ?? 0;
+
+  static Future<void> setMinimumRecommendDuration(int seconds) async {
+    await init();
+    await _prefs!.setInt(
+      _minimumRecommendDurationKey,
+      seconds.clamp(0, 24 * 60 * 60),
+    );
   }
 
   // 自动连播设置

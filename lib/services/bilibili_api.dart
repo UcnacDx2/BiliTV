@@ -20,6 +20,7 @@ import 'api/videoshot_api.dart';
 import 'settings_service.dart' show VideoCodec;
 import '../models/video.dart';
 import '../models/videoshot.dart';
+import 'account_store.dart';
 
 /// Bilibili API 服务 (门面模式)
 /// 保持与原有接口完全兼容
@@ -92,11 +93,17 @@ class BilibiliApi {
     String order = 'pubdate',
   }) => VideoApi.getSpaceVideos(mid: mid, page: page, order: order);
 
+  /// 获取视频首帧，用于首帧质量判断和封面替换。
+  static Future<VideoFirstFrameInfo?> getVideoFirstFrameInfo(String bvid) =>
+      VideoApi.getVideoFirstFrameInfo(bvid);
+
   // ========== 播放相关 ==========
 
   /// 获取视频详情（包含分P信息和播放历史）
-  static Future<Map<String, dynamic>?> getVideoInfo(String bvid) =>
-      PlaybackApi.getVideoInfo(bvid);
+  static Future<Map<String, dynamic>?> getVideoInfo(
+    String bvid, {
+    AccountRole role = AccountRole.video,
+  }) => PlaybackApi.getVideoInfo(bvid, role: role);
 
   /// 获取视频的 cid
   static Future<int?> getVideoCid(String bvid) => PlaybackApi.getVideoCid(bvid);

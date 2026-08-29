@@ -3,6 +3,7 @@ class Video {
   final String bvid;
   final String title;
   final String pic; // 封面图 URL
+  final String? firstFrame; // 视频首帧 URL（可选）
   final String ownerName;
   final String ownerFace;
   final int ownerMid;
@@ -23,6 +24,7 @@ class Video {
     required this.bvid,
     required this.title,
     required this.pic,
+    this.firstFrame,
     this.ownerName = '',
     this.ownerFace = '',
     this.ownerMid = 0,
@@ -54,6 +56,7 @@ class Video {
       bvid: json['bvid'] ?? '',
       title: json['title'] ?? '',
       pic: _fixPicUrl(json['pic'] ?? ''),
+      firstFrame: _nullableUrl(json['first_frame']),
       ownerName: owner['name'] ?? '',
       ownerFace: _fixPicUrl(owner['face'] ?? ''),
       ownerMid: owner['mid'] ?? 0,
@@ -81,6 +84,7 @@ class Video {
       bvid: history['bvid'] ?? '',
       title: json['title'] ?? '',
       pic: _fixPicUrl(cover),
+      firstFrame: _nullableUrl(json['first_frame']),
       ownerName: json['author_name'] ?? '',
       ownerFace: _fixPicUrl(json['author_face'] ?? ''),
       ownerMid: json['author_mid'] ?? 0,
@@ -114,6 +118,7 @@ class Video {
       bvid: json['bvid'] ?? '',
       title: title,
       pic: _fixPicUrl(json['pic'] ?? ''),
+      firstFrame: _nullableUrl(json['first_frame']),
       ownerName: json['author'] ?? '',
       view: _toInt(json['play']),
       danmaku: _toInt(json['danmaku']),
@@ -129,6 +134,7 @@ class Video {
       bvid: json['bvid'] ?? '',
       title: json['title'] ?? '',
       pic: _fixPicUrl(json['pic'] ?? ''),
+      firstFrame: _nullableUrl(json['first_frame']),
       ownerName: json['author'] ?? '',
       ownerMid: _toInt(json['mid']),
       view: _toInt(json['play']),
@@ -214,6 +220,11 @@ class Video {
   static String _fixPicUrl(String url) {
     if (url.startsWith('//')) return 'https:$url';
     return url;
+  }
+
+  static String? _nullableUrl(dynamic value) {
+    if (value is! String || value.isEmpty) return null;
+    return _fixPicUrl(value);
   }
 
   // 安全转换为 int

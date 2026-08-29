@@ -21,20 +21,37 @@ class PlaybackProgressCache {
   /// [bvid] 视频 BVID
   /// [cid] 当前分P的 CID
   /// [progress] 播放进度（秒）
-  static Future<void> saveProgress(String bvid, int cid, int progress) async {
+  static Future<void> saveProgress(
+    String bvid,
+    int cid,
+    int progress, {
+    int? accountMid,
+  }) async {
     await init();
-    await _prefs?.setInt('$_progressPrefix$bvid', progress);
-    await _prefs?.setInt('$_cidPrefix$bvid', cid);
+    final suffix = _suffix(bvid, accountMid);
+    await _prefs?.setInt('$_progressPrefix$suffix', progress);
+    await _prefs?.setInt('$_cidPrefix$suffix', cid);
   }
 
   /// 获取缓存的完整记录（CID 和进度）
   ///
   /// [bvid] 视频 BVID
   /// 返回 (cid, progress)，如果没有缓存则返回 null
-  static Future<({int cid, int progress})?> getCachedRecord(String bvid) async {
+  static Future<({int cid, int progress})?> getCachedRecord(
+    String bvid, {
+    int? accountMid,
+  }) async {
     await init();
-    final cachedCid = _prefs?.getInt('$_cidPrefix$bvid');
-    final cachedProgress = _prefs?.getInt('$_progressPrefix$bvid');
+    final suffix = _suffix(bvid, accountMid);
+    var cachedCid = _prefs?.getInt('$_cidPrefix$suffix');
+    var cachedProgress = _prefs?.getInt('$_progressPrefix$suffix');
+
+    // A cache created before account isolation is still useful for the
+    // first migrated account, but never becomes the write target again.
+    if (accountMid != null && (cachedCid == null || cachedProgress == null)) {
+      cachedCid = _prefs?.getInt('$_cidPrefix$bvid');
+      cachedProgress = _prefs?.getInt('$_progressPrefix$bvid');
+    }
 
     if (cachedCid != null &&
         cachedCid > 0 &&
@@ -46,9 +63,13 @@ class PlaybackProgressCache {
   }
 
   /// 清除指定视频的进度缓存（播放完成时调用）
-  static Future<void> clearProgress(String bvid) async {
+  static Future<void> clearProgress(String bvid, {int? accountMid}) async {
     await init();
-    await _prefs?.remove('$_progressPrefix$bvid');
-    await _prefs?.remove('$_cidPrefix$bvid');
+    final suffix = _suffix(bvid, accountMid);
+    await _prefs?.remove('$_progressPrefix$suffix');
+    await _prefs?.remove('$_cidPrefix$suffix');
   }
+
+  static String _suffix(String bvid, int? accountMid) =>
+      accountMid == null ? bvid : '${accountMid}_$bvid';
 }

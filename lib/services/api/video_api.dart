@@ -1,12 +1,67 @@
 import 'dart:convert';
+import 'dart:collection';
 import 'package:http/http.dart' as http;
 import 'base_api.dart';
 import 'sign_utils.dart';
 import '../auth_service.dart';
+import '../account_store.dart';
 import '../../models/video.dart';
+import '../recommendation_filter.dart';
+import '../settings_service.dart';
 
 /// 视频列表和搜索相关 API
+class VideoFirstFrameInfo {
+  const VideoFirstFrameInfo({required this.url, required this.cid});
+  final String url;
+  final int? cid;
+}
+
 class VideoApi {
+  static const _firstFrameCacheMaxEntries = 320;
+  static final LinkedHashMap<String, Future<VideoFirstFrameInfo?>>
+  _firstFrameCache = LinkedHashMap();
+
+  /// First-frame metadata used by the mobile-patches cover pipeline.
+  static Future<VideoFirstFrameInfo?> getVideoFirstFrameInfo(String bvid) {
+    if (bvid.isEmpty) return Future.value();
+    final cached = _firstFrameCache.remove(bvid);
+    if (cached != null) {
+      _firstFrameCache[bvid] = cached;
+      return cached;
+    }
+    final request = () async {
+      try {
+        final response = await http.get(
+          Uri.parse(
+            '${BaseApi.apiBase}/x/player/pagelist',
+          ).replace(queryParameters: {'bvid': bvid}),
+          headers: BaseApi.getHeaders(),
+        );
+        if (response.statusCode != 200) return null;
+        final json = jsonDecode(response.body);
+        final pages = json['data'] as List?;
+        if (json['code'] == 0 && pages != null && pages.isNotEmpty) {
+          final page = Map<String, dynamic>.from(pages.first as Map);
+          final url = page['first_frame'] as String?;
+          if (url != null && url.isNotEmpty) {
+            return VideoFirstFrameInfo(
+              url: BaseApi.fixPicUrl(url),
+              cid: BaseApi.toInt(page['cid']),
+            );
+          }
+        }
+      } catch (_) {
+        _firstFrameCache.remove(bvid);
+      }
+      return null;
+    }();
+    _firstFrameCache[bvid] = request;
+    while (_firstFrameCache.length > _firstFrameCacheMaxEntries) {
+      _firstFrameCache.remove(_firstFrameCache.keys.first);
+    }
+    return request;
+  }
+
   /// 获取热门视频 (无需登录)
   static Future<List<Video>> getPopularVideos({int page = 1}) async {
     try {
@@ -61,10 +116,14 @@ class VideoApi {
         final json = jsonDecode(response.body);
         if (json['code'] == 0 && json['data'] != null) {
           final items = json['data']['item'] as List? ?? [];
-          return items
+          final videos = items
               .where((item) => item['bvid'] != null)
               .map((item) => Video.fromRecommend(item))
               .toList();
+          return RecommendationFilter.minimumDuration(
+            videos,
+            SettingsService.minimumRecommendDuration,
+          );
         }
       }
     } catch (e) {
@@ -125,7 +184,10 @@ class VideoApi {
 
       final response = await http.get(
         uri,
-        headers: BaseApi.getHeaders(withCookie: true),
+        headers: BaseApi.getHeaders(
+          withCookie: true,
+          role: AccountRole.history,
+        ),
       );
 
       if (response.statusCode == 200) {

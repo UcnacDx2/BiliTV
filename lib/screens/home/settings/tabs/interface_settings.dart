@@ -132,6 +132,18 @@ class _InterfaceSettingsState extends State<InterfaceSettings> {
           },
         ),
         const SizedBox(height: 16),
+        // 视频封面替换
+        SettingToggleRow(
+          label: '使用视频首帧封面',
+          subtitle: '过滤黑帧和低信息首帧，必要时回退到视频截图',
+          value: SettingsService.useFirstFrameAsCover,
+          autofocus: false,
+          onChanged: (value) async {
+            await SettingsService.setUseFirstFrameAsCover(value);
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 16),
 
         // 分区开关
         Padding(

@@ -103,6 +103,21 @@ class SignUtils {
     return signParams;
   }
 
+  /// APP endpoint signature used by mobile-patches' videoshot fallback.
+  static Map<String, String> signForMobileApp(Map<String, String> params) {
+    const appKey = 'dfca71928277209b';
+    const appSec = 'b5475a8825547a4fc26c7d518eaaa02e';
+    final signed = Map<String, String>.from(params)
+      ..['appkey'] = appKey
+      ..['ts'] = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+    final keys = signed.keys.toList()..sort();
+    final query = keys
+        .map((key) => '$key=${Uri.encodeComponent(signed[key]!)}')
+        .join('&');
+    signed['sign'] = _md5(query + appSec);
+    return signed;
+  }
+
   /// 生成 WBI 混淆 key
   static String _getMixinKey(String imgKey, String subKey) {
     final raw = imgKey + subKey;

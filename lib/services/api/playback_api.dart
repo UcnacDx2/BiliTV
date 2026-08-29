@@ -7,16 +7,20 @@ import 'sign_utils.dart';
 import '../auth_service.dart';
 import '../codec_service.dart';
 import '../settings_service.dart';
+import '../account_store.dart';
 
 /// 播放相关 API (视频详情、播放地址、弹幕、进度上报)
 class PlaybackApi {
   /// 获取视频详情（包含分P信息和播放历史）
-  static Future<Map<String, dynamic>?> getVideoInfo(String bvid) async {
+  static Future<Map<String, dynamic>?> getVideoInfo(
+    String bvid, {
+    AccountRole role = AccountRole.video,
+  }) async {
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final url =
           'https://api.bilibili.com/x/web-interface/view?bvid=$bvid&_=$timestamp';
-      final headers = BaseApi.getHeaders(withCookie: true);
+      final headers = BaseApi.getHeaders(withCookie: true, role: role);
       debugPrint(
         '🎬 [API] getVideoInfo headers: ${headers['Cookie'] != null ? 'Cookie present' : 'NO COOKIE'}',
       );
@@ -41,7 +45,7 @@ class PlaybackApi {
 
       final response = await http.get(
         Uri.parse(url),
-        headers: BaseApi.getHeaders(),
+        headers: BaseApi.getHeaders(role: AccountRole.video),
       );
 
       if (response.statusCode == 200) {
@@ -89,7 +93,8 @@ class PlaybackApi {
 
       final response = await http.get(
         Uri.parse(url),
-        headers: BaseApi.getHeaders(withCookie: true),
+        // The account assigned to the video role owns the playable source.
+        headers: BaseApi.getHeaders(withCookie: true, role: AccountRole.video),
       );
 
       if (response.statusCode == 200) {
@@ -210,21 +215,38 @@ class PlaybackApi {
               }
 
               if (videoUrl != null) {
-                return {
-                  'url': videoUrl,
-                  'audioUrl': audioUrl,
-                  'qualities': qualities,
-                  'currentQuality': data['quality'] ?? qn,
-                  'isDash': isDash,
-                  'codec': selectedCodec,
-                  'dashData': data['dash'],
-                };
+                return await _attachAccountAwareResume(
+                  {
+                    'url': videoUrl,
+                    'audioUrl': audioUrl,
+                    'qualities': qualities,
+                    'currentQuality': data['quality'] ?? qn,
+                    'isDash': isDash,
+                    'codec': selectedCodec,
+                    'dashData': data['dash'],
+                  },
+                  playUrl: Uri.parse(url),
+                  data: data,
+                );
               }
             }
           } else if (data['durl'] != null) {
             final durls = data['durl'] as List;
             if (durls.isNotEmpty) {
               videoUrl = durls[0]['url'];
+              if (videoUrl != null) {
+                return await _attachAccountAwareResume(
+                  {
+                    'url': videoUrl,
+                    'qualities': qualities,
+                    'currentQuality': data['quality'] ?? qn,
+                    'isDash': false,
+                    'dashData': null,
+                  },
+                  playUrl: Uri.parse(url),
+                  data: data,
+                );
+              }
             }
           }
         } else {
@@ -242,6 +264,43 @@ class PlaybackApi {
       return {'error': e.toString()};
     }
     return null;
+  }
+
+  /// The mobile-patches account split is intentional: the video account
+  /// resolves the stream, while the history account supplies resume state.
+  static Future<Map<String, dynamic>> _attachAccountAwareResume(
+    Map<String, dynamic> result, {
+    required Uri playUrl,
+    required Map<String, dynamic> data,
+  }) async {
+    result['lastPlayTime'] = BaseApi.toInt(data['last_play_time']);
+    result['lastPlayCid'] = BaseApi.toInt(data['last_play_cid']);
+
+    final videoMid = AuthService.videoAccount?.mid;
+    final history = AuthService.historyAccount;
+    if (history == null || videoMid == null || history.mid == videoMid) {
+      return result;
+    }
+
+    try {
+      final response = await http.get(
+        playUrl,
+        headers: BaseApi.getHeaders(
+          withCookie: true,
+          role: AccountRole.history,
+        ),
+      );
+      if (response.statusCode != 200) return result;
+      final json = jsonDecode(response.body);
+      final historyData = json['data'] as Map<String, dynamic>?;
+      if (json['code'] == 0 && historyData != null) {
+        result['lastPlayTime'] = BaseApi.toInt(historyData['last_play_time']);
+        result['lastPlayCid'] = BaseApi.toInt(historyData['last_play_cid']);
+      }
+    } catch (_) {
+      // Stream resolution must remain usable if the secondary account fails.
+    }
+    return result;
   }
 
   /// 获取弹幕数据 (XML 格式，支持 deflate/gzip/raw)
@@ -324,7 +383,10 @@ class PlaybackApi {
         'played_time': progress.toString(),
         'real_played_time': progress.toString(),
         'start_ts': startTs.toString(),
-        'csrf': AuthService.biliJct ?? '',
+        'csrf':
+            AccountStore.accountFor(AccountRole.heartbeat)?.biliJct ??
+            AuthService.biliJct ??
+            '',
       };
 
       final queryString = queryParams.entries
@@ -339,7 +401,10 @@ class PlaybackApi {
 
       final response = await http.post(
         Uri.parse(url),
-        headers: BaseApi.getHeaders(withCookie: true),
+        headers: BaseApi.getHeaders(
+          withCookie: true,
+          role: AccountRole.heartbeat,
+        ),
       );
 
       if (response.statusCode == 200) {
@@ -365,7 +430,10 @@ class PlaybackApi {
           'https://api.bilibili.com/x/player/online/total?aid=$aid&cid=$cid';
       final response = await http.get(
         Uri.parse(url),
-        headers: BaseApi.getHeaders(withCookie: true),
+        headers: BaseApi.getHeaders(
+          withCookie: true,
+          role: AccountRole.heartbeat,
+        ),
       );
 
       if (response.statusCode == 200) {

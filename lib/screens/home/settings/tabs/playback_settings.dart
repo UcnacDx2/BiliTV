@@ -55,6 +55,21 @@ class _PlaybackSettingsState extends State<PlaybackSettings> {
           },
         ),
         const SizedBox(height: 16),
+        SettingDropdownRow<int>(
+          label: '推荐视频最低时长',
+          subtitle: '过滤短于设定时长的推荐视频，0 表示不过滤',
+          value: SettingsService.minimumRecommendDuration,
+          items: const [0, 60, 180, 300, 600, 1200, 1800],
+          itemLabel: _formatDuration,
+          sidebarFocusNode: widget.sidebarFocusNode,
+          onChanged: (seconds) async {
+            if (seconds != null) {
+              await SettingsService.setMinimumRecommendDuration(seconds);
+              setState(() {});
+            }
+          },
+        ),
+        const SizedBox(height: 16),
         SettingToggleRow(
           label: '迷你进度条',
           subtitle: '播放时在屏幕底部显示简约进度条',
@@ -110,5 +125,12 @@ class _PlaybackSettingsState extends State<PlaybackSettings> {
         ),
       ],
     );
+  }
+
+  static String _formatDuration(int seconds) {
+    if (seconds == 0) return '不过滤';
+    if (seconds < 60) return '$seconds 秒';
+    final minutes = seconds ~/ 60;
+    return '$minutes 分钟以上';
   }
 }

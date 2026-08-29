@@ -8,6 +8,8 @@ import 'tabs/storage_settings.dart';
 import 'tabs/about_settings.dart';
 import '../../../widgets/time_display.dart';
 import '../../../widgets/vip_avatar_badge.dart';
+import '../../../services/account_store.dart';
+import '../login/login_view.dart';
 
 /// 设置分类枚举
 enum SettingsCategory {
@@ -93,6 +95,121 @@ class SettingsViewState extends State<SettingsView> {
     if (confirmed) {
       widget.onLogout();
     }
+  }
+
+  Future<void> _addAccount() async {
+    final added = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xFF181818),
+        child: SizedBox(
+          width: 520,
+          height: 560,
+          child: LoginView(
+            onLoginSuccess: () => Navigator.of(context).pop(true),
+          ),
+        ),
+      ),
+    );
+    if (added == true && mounted) setState(() {});
+  }
+
+  Future<void> _showAccountRoles() async {
+    final accounts = AccountStore.accounts.toList();
+    if (accounts.isEmpty) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF2A2A2A),
+          title: const Text('账号分工', style: TextStyle(color: Colors.white)),
+          content: SizedBox(
+            width: 560,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '可让视频解析和历史续播使用不同账号，解决账号权限或大会员状态不同的问题。',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 18),
+                for (final role in const [
+                  AccountRole.main,
+                  AccountRole.video,
+                  AccountRole.history,
+                  AccountRole.heartbeat,
+                ])
+                  _buildRoleSelector(role, accounts, setDialogState),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text(
+                '完成',
+                style: TextStyle(color: Color(0xFFfb7299)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Widget _buildRoleSelector(
+    AccountRole role,
+    List<BiliAccount> accounts,
+    StateSetter setDialogState,
+  ) {
+    final selected = AccountStore.accountFor(role)?.mid;
+    final labels = {
+      AccountRole.main: '当前账号',
+      AccountRole.video: '视频解析账号',
+      AccountRole.history: '历史/续播账号',
+      AccountRole.heartbeat: '进度上报账号',
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              labels[role]!,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+          Expanded(
+            child: DropdownButton<int>(
+              isExpanded: true,
+              value: accounts.any((account) => account.mid == selected)
+                  ? selected
+                  : null,
+              dropdownColor: const Color(0xFF3A3A3A),
+              style: const TextStyle(color: Colors.white),
+              items: accounts
+                  .map(
+                    (account) => DropdownMenuItem<int>(
+                      value: account.mid,
+                      child: Text(
+                        '${account.uname?.isNotEmpty == true ? account.uname : '账号'} (${account.mid})',
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (mid) async {
+                await AccountStore.setRole(role, mid);
+                setDialogState(() {});
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildDefaultAvatar() {
@@ -290,6 +407,18 @@ class SettingsViewState extends State<SettingsView> {
                     ],
                   ),
                   const SizedBox(width: 30),
+                  _buildActionButton(
+                    label: '添加账号',
+                    color: const Color(0xFFfb7299),
+                    onTap: _addAccount,
+                  ),
+                  const SizedBox(width: 12),
+                  _buildActionButton(
+                    label: '账号分工',
+                    color: Colors.blue,
+                    onTap: _showAccountRoles,
+                  ),
+                  const SizedBox(width: 12),
                   // 退出登录按钮
                   _buildActionButton(
                     label: '退出登录',

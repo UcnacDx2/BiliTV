@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../models/video.dart';
 import 'base_tv_card.dart';
 import 'staggered_image.dart';
+import 'first_frame_or_cover.dart';
 import 'conditional_marquee.dart';
-import '../services/settings_service.dart'; // 包含 BiliCacheManager
 import '../utils/image_url_utils.dart';
 
 class TvVideoCard extends StatelessWidget {
@@ -209,23 +208,13 @@ class TvVideoCard extends StatelessWidget {
     }
 
     // 标准加载逻辑 (用于预加载过的数据或不需要交错的数据)
-    return CachedNetworkImage(
-      imageUrl: ImageUrlUtils.getResizedUrl(video.pic, width: 360, height: 200),
-      fit: BoxFit.cover,
-      // 这里的尺寸必须和 SplashScreen 完全一致
-      memCacheWidth: targetWidth,
-      memCacheHeight: targetHeight,
-      // 缓存管理器必须一致
-      cacheManager: BiliCacheManager.instance,
-      // 【核心修复】淡入时间设为 0，因为图片已经在内存里了，不需要动画
-      fadeInDuration: Duration.zero,
-      fadeOutDuration: Duration.zero,
-
-      placeholder: (context, url) => Container(color: const Color(0xFF2d2d2d)),
-      errorWidget: (context, url, error) => Container(
-        color: Colors.grey[900],
-        child: const Icon(Icons.broken_image, size: 20, color: Colors.white24),
-      ),
+    return FirstFrameOrCover(
+      coverUrl: ImageUrlUtils.getResizedUrl(video.pic, width: 360, height: 200),
+      firstFrameUrl: video.firstFrame,
+      bvid: video.bvid,
+      cid: video.cid > 0 ? video.cid : null,
+      width: targetWidth.toDouble(),
+      height: targetHeight.toDouble(),
     );
   }
 }

@@ -10,6 +10,9 @@ class VideoshotData {
   final String? pvdataUrl;
   List<int>? _frameTimestamps;
 
+  /// The mobile API usually returns this directly; pvdata is the fallback.
+  List<int> get frameIndexes => _frameTimestamps ?? const [];
+
   int get framesPerImage => imgXLen * imgYLen; // 对应 JS 中的 l
 
   VideoshotData({
@@ -23,17 +26,20 @@ class VideoshotData {
 
   factory VideoshotData.fromJson(Map<String, dynamic> json) {
     return VideoshotData(
-      images:
-          (json['image'] as List?)
-              ?.map((e) => _fixUrl(e.toString()))
-              .toList() ??
-          [],
-      imgXLen: json['img_x_len'] as int? ?? 10,
-      imgYLen: json['img_y_len'] as int? ?? 10,
-      imgXSize: json['img_x_size'] as int? ?? 160,
-      imgYSize: json['img_y_size'] as int? ?? 90,
-      pvdataUrl: json['pvdata'] != null ? _fixUrl(json['pvdata']) : null,
-    );
+        images:
+            (json['image'] as List?)
+                ?.map((e) => _fixUrl(e.toString()))
+                .toList() ??
+            [],
+        imgXLen: json['img_x_len'] as int? ?? 10,
+        imgYLen: json['img_y_len'] as int? ?? 10,
+        imgXSize: json['img_x_size'] as int? ?? 160,
+        imgYSize: json['img_y_size'] as int? ?? 90,
+        pvdataUrl: json['pvdata'] != null ? _fixUrl(json['pvdata']) : null,
+      )
+      .._frameTimestamps = (json['index'] as List?)
+          ?.map((value) => (value as num).toInt())
+          .toList();
   }
 
   static String _fixUrl(String url) {
@@ -131,11 +137,15 @@ class VideoshotData {
   /// 3. 解析 pvdata.bin
   /// 严格按照 JS 的 Uint8 移位解析（Big-Endian）
   static List<int> parsePvdata(Uint8List bytes) {
+    if (bytes.isEmpty || bytes.length.isOdd) return const [];
     final timestamps = <int>[];
-    for (var i = 0; i < bytes.length - 1; i += 2) {
+    for (var i = 0; i < bytes.length; i += 2) {
       // 对应 JS: var r = i.getUint8(s) << 8 | i.getUint8(s + 1);
       final value = (bytes[i] << 8) | bytes[i + 1];
       timestamps.add(value);
+    }
+    for (var i = 1; i < timestamps.length; i++) {
+      if (timestamps[i] < timestamps[i - 1]) return const [];
     }
     return timestamps;
   }

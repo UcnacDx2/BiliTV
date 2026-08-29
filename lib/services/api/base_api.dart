@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../auth_service.dart';
+import '../account_store.dart';
 
 /// Bilibili API 基础类 - 提供共享工具方法
 class BaseApi {
@@ -15,14 +16,17 @@ class BaseApi {
   static bool _wbiLoaded = false;
 
   /// 获取通用请求头
-  static Map<String, String> getHeaders({bool withCookie = false}) {
-    final headers = {
+  static Map<String, String> getHeaders({
+    bool withCookie = false,
+    AccountRole role = AccountRole.main,
+  }) {
+    final headers = <String, String>{
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
       'Referer': 'https://www.bilibili.com',
     };
 
-    if (withCookie) {
+    if (withCookie && role == AccountRole.main) {
       final sessdata = AuthService.sessdata;
       final biliJct = AuthService.biliJct;
       if (sessdata != null && sessdata.isNotEmpty) {
@@ -31,6 +35,13 @@ class BaseApi {
           cookie += '; bili_jct=$biliJct';
         }
         headers['Cookie'] = cookie;
+      }
+    } else if (withCookie) {
+      final account = AccountStore.accountFor(role);
+      if (account != null) {
+        headers['Cookie'] =
+            'SESSDATA=${account.sessdata}; bili_jct=${account.biliJct}';
+        headers['x-bili-mid'] = '${account.mid}';
       }
     }
 

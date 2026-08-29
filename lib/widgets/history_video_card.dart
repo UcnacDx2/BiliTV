@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:marquee/marquee.dart';
 import '../models/video.dart';
 import '../services/settings_service.dart';
 import 'base_tv_card.dart';
 import '../utils/image_url_utils.dart';
 import '../screens/live/live_player_screen.dart';
+import 'first_frame_or_cover.dart';
 
 /// 历史记录专用视频卡片
 /// 特点：
@@ -286,19 +286,13 @@ class HistoryVideoCard extends StatelessWidget {
     const int targetWidth = 360;
     const int targetHeight = 200;
 
-    return CachedNetworkImage(
-      imageUrl: ImageUrlUtils.getResizedUrl(video.pic, width: 640, height: 360),
-      fit: BoxFit.cover,
-      memCacheWidth: targetWidth,
-      memCacheHeight: targetHeight,
-      cacheManager: BiliCacheManager.instance,
-      fadeInDuration: Duration.zero,
-      fadeOutDuration: Duration.zero,
-      placeholder: (context, url) => Container(color: const Color(0xFF2d2d2d)),
-      errorWidget: (context, url, error) => Container(
-        color: Colors.grey[900],
-        child: const Icon(Icons.broken_image, size: 20, color: Colors.white24),
-      ),
+    return FirstFrameOrCover(
+      coverUrl: ImageUrlUtils.getResizedUrl(video.pic, width: 640, height: 360),
+      firstFrameUrl: video.firstFrame,
+      bvid: video.bvid,
+      cid: video.cid > 0 ? video.cid : null,
+      width: targetWidth.toDouble(),
+      height: targetHeight.toDouble(),
     );
   }
 }
