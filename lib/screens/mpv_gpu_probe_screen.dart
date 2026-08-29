@@ -39,6 +39,11 @@ class _MpvGpuProbeScreenState extends State<MpvGpuProbeScreen> {
   List<WatermarkRegion> _regions = const [];
   StreamSubscription<PlayerLog>? _logSubscription;
 
+  void _report(String message) {
+    debugPrint('[MPV_PROBE] $message');
+    if (mounted) setState(() => _status = message);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -74,31 +79,36 @@ class _MpvGpuProbeScreenState extends State<MpvGpuProbeScreen> {
       );
       await shaderFile.writeAsBytes(shaderData.buffer.asUint8List());
       _shaderPath = shaderFile.path;
+      _report('GPU probe: opening startup clip');
       await _player.open(Media('asset:///assets/icons/startup.mp4'));
-      if (mounted) setState(() => _status = 'GPU 已就绪，正在解析真实 Bilibili 流…');
+      _report('GPU ready; resolving real Bilibili stream');
       await _tryRealBilibiliStream();
     } catch (error) {
-      if (mounted) setState(() => _status = 'GPU probe failed: $error');
+      _report('GPU probe failed: $error');
     }
   }
 
   Future<void> _tryRealBilibiliStream() async {
+    _report('Fetching popular videos');
     final videos = await VideoApi.getPopularVideos();
+    _report('Popular videos received: ${videos.length}');
     if (videos.isEmpty) {
       await _setShader(true);
-      if (mounted) setState(() => _status = '真实流解析失败；已保留 GPU Shader 探针');
+      _report('No popular videos; keeping GPU shader probe');
       return;
     }
     final video = videos.firstWhere(
       (item) => !item.isLive && item.bvid.isNotEmpty,
       orElse: () => videos.first,
     );
+    _report('Resolving video info: ${video.bvid}');
     final info = await BilibiliApi.getVideoInfo(
       video.bvid,
       role: AccountRole.video,
     );
     final resolvedCid = (info?['cid'] as num?)?.toInt() ?? video.cid;
     if (resolvedCid <= 0) throw StateError('无法取得 CID');
+    _report('Requesting playurl: ${video.bvid} cid=$resolvedCid');
     final playInfo = await BilibiliApi.getVideoPlayUrl(
       bvid: video.bvid,
       cid: resolvedCid,
@@ -111,6 +121,10 @@ class _MpvGpuProbeScreenState extends State<MpvGpuProbeScreen> {
     final headers = AccountStore.headers(AccountRole.video)
       ..['Origin'] = 'https://www.bilibili.com';
     final audioUrl = playInfo?['audioUrl'] as String?;
+    _report(
+      'Opening real DASH: qn=${playInfo?['currentQuality']} '
+      'audio=${audioUrl == null || audioUrl.isEmpty ? 'missing' : 'present'}',
+    );
     await _playbackBackend.open(
       MpvPlaybackSource(
         videoUrl: url,
@@ -120,7 +134,7 @@ class _MpvGpuProbeScreenState extends State<MpvGpuProbeScreen> {
         codec: playInfo?['codec'] as String?,
       ),
     );
-    if (mounted) setState(() => _status = '真实流播放中：${video.bvid}，正在读取官方雪碧图…');
+    _report('Real stream opened: ${video.bvid}; reading official videoshot');
     await _detectFromOfficialVideoshot(video.bvid, resolvedCid);
   }
 
