@@ -49,6 +49,11 @@ jobs:
 
       - name: Build normal research APK
         run: |
+          # The probe and normal builds use different const environment
+          # values. Clear Flutter's kernel/build cache so the second APK
+          # cannot retain the probe entry point.
+          flutter clean
+          flutter pub get
           flutter build apk --debug --dart-define=MPV_GPU_PROBE=false
           cp build/app/outputs/flutter-apk/app-debug.apk build/watermark-artifacts/BiliTV-watermark-player.apk
 
