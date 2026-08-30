@@ -280,6 +280,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   danmakuSpeed: danmakuSpeed,
                   hideTopDanmaku: hideTopDanmaku,
                   hideBottomDanmaku: hideBottomDanmaku,
+                  watermarkEnabled: watermarkEnabled,
                   onNavigate: (type, index) {
                     setState(() {
                       settingsMenuType = type;
@@ -287,6 +288,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     });
                   },
                   onQualityPicker: showQualityPicker,
+                  onWatermarkToggle: toggleWatermark,
                 ),
 
               // UP主面板

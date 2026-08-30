@@ -66,6 +66,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
       danmakuArea = prefs.getDouble('danmaku_area') ?? 0.25;
       danmakuSpeed = prefs.getDouble('danmaku_speed') ?? 10.0;
       hideTopDanmaku = prefs.getBool('hide_top_danmaku') ?? false;
+      watermarkEnabled = prefs.getBool('watermark_enabled') ?? true;
       hideBottomDanmaku = prefs.getBool('hide_bottom_danmaku') ?? false;
       // 根据设置决定是否显示控制栏
       showControls = !SettingsService.hideControlsOnStart;
@@ -82,6 +83,26 @@ mixin PlayerActionMixin on PlayerStateMixin {
     await prefs.setDouble('danmaku_speed', danmakuSpeed);
     await prefs.setBool('hide_top_danmaku', hideTopDanmaku);
     await prefs.setBool('hide_bottom_danmaku', hideBottomDanmaku);
+    await prefs.setBool('watermark_enabled', watermarkEnabled);
+  }
+
+  Future<void> toggleWatermark() async {
+    final enabled = !watermarkEnabled;
+    setState(() {
+      watermarkEnabled = enabled;
+      _watermarkDebugDisabled = !enabled;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('watermark_enabled', enabled);
+    final player = videoController;
+    final path = watermarkShaderPath;
+    if (player == null || path == null) return;
+    if (enabled && activeWatermarkRegions.isNotEmpty) {
+      await WatermarkFilter.apply(player.player, path, activeWatermarkRegions);
+    } else {
+      await WatermarkFilter.clear(player.player, path);
+    }
+    Fluttertoast.showToast(msg: enabled ? '去水印已开启' : '去水印已关闭');
   }
 
   Future<void> initializePlayer() async {
@@ -491,7 +512,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
           await FirstFrameWatermarkService.detect(widget.video.bvid);
       if (generation != watermarkGeneration || !identical(player, videoController)) return;
       if (firstFrameRegion != null) {
-        if (_watermarkDebugDisabled) {
+        if (_watermarkDebugDisabled || !watermarkEnabled) {
           await WatermarkFilter.clear(player.player, shaderPath);
         } else {
           await WatermarkFilter.apply(player.player, shaderPath, [firstFrameRegion]);
@@ -523,7 +544,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
             : await WatermarkDetector.detectSingleBilibili(frame);
         if (generation != watermarkGeneration || !identical(player, videoController)) return;
         final regions = detected == null ? const <WatermarkRegion>[] : [detected];
-        if (_watermarkDebugDisabled) {
+        if (_watermarkDebugDisabled || !watermarkEnabled) {
           await WatermarkFilter.clear(player.player, shaderPath);
         } else {
           await WatermarkFilter.apply(player.player, shaderPath, regions);
@@ -562,9 +583,11 @@ mixin PlayerActionMixin on PlayerStateMixin {
           final path = watermarkShaderPath;
           if (path != null) await WatermarkFilter.clear(controller.player, path);
           _watermarkDebugDisabled = true;
+          if (mounted) setState(() => watermarkEnabled = false);
           return 'shader=off';
         case 'shader-on':
           _watermarkDebugDisabled = false;
+          if (mounted) setState(() => watermarkEnabled = true);
           final path = watermarkShaderPath;
           if (path != null && activeWatermarkRegions.isNotEmpty) {
             await WatermarkFilter.apply(controller.player, path, activeWatermarkRegions);
@@ -603,6 +626,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
           return result;
         case 'reset':
           _watermarkDebugDisabled = false;
+          if (mounted) setState(() => watermarkEnabled = true);
           final path = watermarkShaderPath;
           if (path != null && activeWatermarkRegions.isNotEmpty) {
             await WatermarkFilter.apply(controller.player, path, activeWatermarkRegions);

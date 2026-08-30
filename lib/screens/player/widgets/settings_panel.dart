@@ -17,10 +17,12 @@ class SettingsPanel extends StatefulWidget {
   final double danmakuSpeed;
   final bool hideTopDanmaku;
   final bool hideBottomDanmaku;
+  final bool watermarkEnabled;
 
   // Callbacks
   final Function(SettingsMenuType, int) onNavigate;
   final VoidCallback onQualityPicker;
+  final VoidCallback onWatermarkToggle;
 
   const SettingsPanel({
     super.key,
@@ -36,8 +38,10 @@ class SettingsPanel extends StatefulWidget {
     required this.danmakuSpeed,
     required this.hideTopDanmaku,
     required this.hideBottomDanmaku,
+    required this.watermarkEnabled,
     required this.onNavigate,
     required this.onQualityPicker,
+    required this.onWatermarkToggle,
   });
 
   @override
@@ -180,6 +184,15 @@ class _SettingsPanelState extends State<SettingsPanel> {
           title: '播放速度',
           value: '${widget.playbackSpeed}x',
           onTap: () => widget.onNavigate(SettingsMenuType.speed, 0),
+        ),
+        _buildSettingItem(
+          index: 3,
+          icon: widget.watermarkEnabled
+              ? Icons.branding_watermark
+              : Icons.no_cell,
+          title: '去水印',
+          value: widget.watermarkEnabled ? '开' : '关',
+          onTap: widget.onWatermarkToggle,
         ),
       ],
     );

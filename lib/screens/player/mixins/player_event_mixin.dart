@@ -440,7 +440,7 @@ mixin PlayerEventMixin on PlayerActionMixin {
   int _getSettingsMaxIndex() {
     switch (settingsMenuType) {
       case SettingsMenuType.main:
-        return 2;
+        return 3;
       case SettingsMenuType.danmaku:
         return 6;
       case SettingsMenuType.speed:
