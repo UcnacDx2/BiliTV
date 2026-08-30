@@ -25,6 +25,7 @@ import '../../../services/video_shot_preview_service.dart';
 import '../../../services/watermark_detector.dart';
 import '../../../services/watermark_filter.dart';
 import '../../../services/watermark_region.dart';
+import '../../../services/first_frame_watermark_service.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// 播放器逻辑 Mixin
@@ -466,11 +467,26 @@ mixin PlayerActionMixin on PlayerStateMixin {
     try {
       final directory = await getApplicationSupportDirectory();
       final shaderPath = WatermarkFilter.pathFor(directory.path);
+      // The pagelist first-frame request is the primary source, matching
+      // PiliPlus. Videoshot remains a cover/seek-preview source, not a
+      // rendered-frame capture path.
+      final firstFrameRegion =
+          await FirstFrameWatermarkService.detect(widget.video.bvid);
+      if (generation != watermarkGeneration || !identical(player, videoController)) return;
+      if (firstFrameRegion != null) {
+        await WatermarkFilter.apply(player.player, shaderPath, [firstFrameRegion]);
+        if (generation == watermarkGeneration && identical(player, videoController)) {
+          watermarkShaderPath = shaderPath;
+          activeWatermarkRegions = [firstFrameRegion];
+          debugPrint('🎬 [Watermark] GPU shader applied from first frame');
+        }
+        return;
+      }
+
       final preview = await VideoShotPreviewService.resolve(
         bvid: widget.video.bvid,
         cid: videoCid,
       );
-      if (generation != watermarkGeneration || !identical(player, videoController)) return;
       if (preview == null) {
         await WatermarkFilter.clear(player.player, shaderPath);
         watermarkShaderPath = shaderPath;

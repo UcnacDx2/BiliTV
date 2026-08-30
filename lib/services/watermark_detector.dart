@@ -13,8 +13,12 @@ class WatermarkFrame {
   final int height;
   final Uint8List luma;
 
-  static Future<WatermarkFrame?> fromImage(ui.Image image, {int targetWidth = 480}) async {
-    final width = min(targetWidth, image.width);
+  static Future<WatermarkFrame?> fromImage(
+    ui.Image image, {
+    int targetWidth = 480,
+    bool upscale = false,
+  }) async {
+    final width = upscale ? targetWidth : min(targetWidth, image.width);
     final height = max(1, (image.height * width / image.width).round());
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
