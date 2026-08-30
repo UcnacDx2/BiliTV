@@ -5,6 +5,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:flutter/material.dart';
+import 'watermark_region.dart';
 
 /// 视频编解码器枚举
 enum VideoCodec {
@@ -37,6 +38,8 @@ class BiliCacheManager {
 
 /// 设置服务
 class SettingsService {
+  static const String _watermarkEnabledKey = 'watermark_enabled';
+  static const String _watermarkPositionKey = 'watermark_position';
   static const String _useFirstFrameAsCoverKey = 'use_first_frame_as_cover';
   static const String _useHardwareDecodeKey = 'use_hardware_decode';
   static SharedPreferences? _prefs;
@@ -155,6 +158,31 @@ class SettingsService {
     await _prefs!.setBool(_useFirstFrameAsCoverKey, value);
     if (useFirstFrameAsCoverNotifier.value != value) {
       useFirstFrameAsCoverNotifier.value = value;
+    }
+  }
+
+  static bool get watermarkEnabled =>
+      _prefs?.getBool(_watermarkEnabledKey) ?? true;
+
+  static Future<void> setWatermarkEnabled(bool value) async {
+    await init();
+    await _prefs!.setBool(_watermarkEnabledKey, value);
+  }
+
+  static WatermarkPosition? get watermarkPosition {
+    final value = _prefs?.getString(_watermarkPositionKey);
+    for (final item in WatermarkPosition.values) {
+      if (item.name == value) return item;
+    }
+    return null;
+  }
+
+  static Future<void> setWatermarkPosition(WatermarkPosition? value) async {
+    await init();
+    if (value == null) {
+      await _prefs!.remove(_watermarkPositionKey);
+    } else {
+      await _prefs!.setString(_watermarkPositionKey, value.name);
     }
   }
 

@@ -67,6 +67,11 @@ mixin PlayerActionMixin on PlayerStateMixin {
       danmakuSpeed = prefs.getDouble('danmaku_speed') ?? 10.0;
       hideTopDanmaku = prefs.getBool('hide_top_danmaku') ?? false;
       watermarkEnabled = prefs.getBool('watermark_enabled') ?? true;
+      final savedPosition = prefs.getString('watermark_position');
+      watermarkPosition = null;
+      for (final item in WatermarkPosition.values) {
+        if (item.name == savedPosition) watermarkPosition = item;
+      }
       hideBottomDanmaku = prefs.getBool('hide_bottom_danmaku') ?? false;
       // 根据设置决定是否显示控制栏
       showControls = !SettingsService.hideControlsOnStart;
@@ -83,7 +88,11 @@ mixin PlayerActionMixin on PlayerStateMixin {
     await prefs.setDouble('danmaku_speed', danmakuSpeed);
     await prefs.setBool('hide_top_danmaku', hideTopDanmaku);
     await prefs.setBool('hide_bottom_danmaku', hideBottomDanmaku);
-    await prefs.setBool('watermark_enabled', watermarkEnabled);
+    if (watermarkPosition == null) {
+      await prefs.remove('watermark_position');
+    } else {
+      await prefs.setString('watermark_position', watermarkPosition!.name);
+    }
   }
 
   Future<void> toggleWatermark() async {
@@ -92,17 +101,46 @@ mixin PlayerActionMixin on PlayerStateMixin {
       watermarkEnabled = enabled;
       _watermarkDebugDisabled = !enabled;
     });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('watermark_enabled', enabled);
+    await _reapplyWatermark();
+    if (videoController == null || watermarkShaderPath == null) return;
+    Fluttertoast.showToast(msg: enabled ? '去水印已开启' : '去水印已关闭');
+  }
+
+  Future<void> cycleWatermarkPosition() async {
+    const positions = <WatermarkPosition?>[
+      null,
+      WatermarkPosition.topLeft,
+      WatermarkPosition.topRight,
+      WatermarkPosition.bottomLeft,
+      WatermarkPosition.bottomRight,
+    ];
+    final next = positions[(positions.indexOf(watermarkPosition) + 1) % positions.length];
+    setState(() => watermarkPosition = next);
+    await SettingsService.setWatermarkPosition(next);
+    await _reapplyWatermark();
+    Fluttertoast.showToast(msg: '去水印位置：${_watermarkPositionLabel(next)}');
+  }
+
+  String _watermarkPositionLabel(WatermarkPosition? position) => switch (position) {
+        null => '自动检测',
+        WatermarkPosition.topLeft => '左上',
+        WatermarkPosition.topRight => '右上',
+        WatermarkPosition.bottomLeft => '左下',
+        WatermarkPosition.bottomRight => '右下',
+      };
+
+  Future<void> _reapplyWatermark() async {
     final player = videoController;
     final path = watermarkShaderPath;
     if (player == null || path == null) return;
-    if (enabled && activeWatermarkRegions.isNotEmpty) {
-      await WatermarkFilter.apply(player.player, path, activeWatermarkRegions);
+    final regions = watermarkPosition == null
+        ? activeWatermarkRegions
+        : [WatermarkRegion.fixed(watermarkPosition!)];
+    if (watermarkEnabled && regions.isNotEmpty) {
+      await WatermarkFilter.apply(player.player, path, regions);
     } else {
       await WatermarkFilter.clear(player.player, path);
     }
-    Fluttertoast.showToast(msg: enabled ? '去水印已开启' : '去水印已关闭');
   }
 
   Future<void> initializePlayer() async {
@@ -505,6 +543,19 @@ mixin PlayerActionMixin on PlayerStateMixin {
     try {
       final directory = await getApplicationSupportDirectory();
       final shaderPath = WatermarkFilter.pathFor(directory.path);
+      if (watermarkPosition != null) {
+        final fixedRegion = WatermarkRegion.fixed(watermarkPosition!);
+        if (_watermarkDebugDisabled || !watermarkEnabled) {
+          await WatermarkFilter.clear(player.player, shaderPath);
+        } else {
+          await WatermarkFilter.apply(player.player, shaderPath, [fixedRegion]);
+        }
+        if (generation == watermarkGeneration && identical(player, videoController)) {
+          watermarkShaderPath = shaderPath;
+          activeWatermarkRegions = [fixedRegion];
+        }
+        return;
+      }
       // The pagelist first-frame request is the primary source, matching
       // PiliPlus. Videoshot remains a cover/seek-preview source, not a
       // rendered-frame capture path.
@@ -515,11 +566,19 @@ mixin PlayerActionMixin on PlayerStateMixin {
         if (_watermarkDebugDisabled || !watermarkEnabled) {
           await WatermarkFilter.clear(player.player, shaderPath);
         } else {
-          await WatermarkFilter.apply(player.player, shaderPath, [firstFrameRegion]);
+          await WatermarkFilter.apply(
+            player.player,
+            shaderPath,
+            watermarkPosition == null
+                ? [firstFrameRegion]
+                : [WatermarkRegion.fixed(watermarkPosition!)],
+          );
         }
         if (generation == watermarkGeneration && identical(player, videoController)) {
           watermarkShaderPath = shaderPath;
-          activeWatermarkRegions = [firstFrameRegion];
+          activeWatermarkRegions = watermarkPosition == null
+              ? [firstFrameRegion]
+              : [WatermarkRegion.fixed(watermarkPosition!)];
           debugPrint('🎬 [Watermark] GPU shader applied from first frame');
         }
         return;
@@ -543,7 +602,9 @@ mixin PlayerActionMixin on PlayerStateMixin {
             ? null
             : await WatermarkDetector.detectSingleBilibili(frame);
         if (generation != watermarkGeneration || !identical(player, videoController)) return;
-        final regions = detected == null ? const <WatermarkRegion>[] : [detected];
+        final regions = watermarkPosition == null
+            ? (detected == null ? const <WatermarkRegion>[] : [detected])
+            : [WatermarkRegion.fixed(watermarkPosition!)];
         if (_watermarkDebugDisabled || !watermarkEnabled) {
           await WatermarkFilter.clear(player.player, shaderPath);
         } else {
@@ -1540,6 +1601,9 @@ mixin PlayerActionMixin on PlayerStateMixin {
           break;
         case 3:
           toggleWatermark();
+          break;
+        case 4:
+          cycleWatermarkPosition();
           break;
       }
     } else if (settingsMenuType == SettingsMenuType.danmaku) {

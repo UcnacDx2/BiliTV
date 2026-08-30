@@ -18,11 +18,13 @@ class SettingsPanel extends StatefulWidget {
   final bool hideTopDanmaku;
   final bool hideBottomDanmaku;
   final bool watermarkEnabled;
+  final String watermarkPositionDesc;
 
   // Callbacks
   final Function(SettingsMenuType, int) onNavigate;
   final VoidCallback onQualityPicker;
   final VoidCallback onWatermarkToggle;
+  final VoidCallback onWatermarkPositionChange;
 
   const SettingsPanel({
     super.key,
@@ -39,9 +41,11 @@ class SettingsPanel extends StatefulWidget {
     required this.hideTopDanmaku,
     required this.hideBottomDanmaku,
     required this.watermarkEnabled,
+    required this.watermarkPositionDesc,
     required this.onNavigate,
     required this.onQualityPicker,
     required this.onWatermarkToggle,
+    required this.onWatermarkPositionChange,
   });
 
   @override
@@ -193,6 +197,13 @@ class _SettingsPanelState extends State<SettingsPanel> {
           title: '去水印',
           value: widget.watermarkEnabled ? '开' : '关',
           onTap: widget.onWatermarkToggle,
+        ),
+        _buildSettingItem(
+          index: 4,
+          icon: Icons.open_with,
+          title: '去水印位置',
+          value: widget.watermarkPositionDesc,
+          onTap: widget.onWatermarkPositionChange,
         ),
       ],
     );

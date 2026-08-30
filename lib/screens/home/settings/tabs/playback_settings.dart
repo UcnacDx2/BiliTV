@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../services/settings_service.dart';
 import '../../../../services/codec_service.dart';
+import '../../../../services/watermark_region.dart';
 import '../widgets/setting_toggle_row.dart';
 import '../widgets/setting_dropdown_row.dart';
 
@@ -41,6 +42,30 @@ class _PlaybackSettingsState extends State<PlaybackSettings> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        SettingToggleRow(
+          label: '全局去水印',
+          subtitle: '对视频播放器默认启用去水印处理',
+          value: SettingsService.watermarkEnabled,
+          sidebarFocusNode: widget.sidebarFocusNode,
+          onChanged: (value) async {
+            await SettingsService.setWatermarkEnabled(value);
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 16),
+        SettingDropdownRow<WatermarkPosition?>(
+          label: '去水印位置',
+          subtitle: '自动检测或指定视频水印所在的四角',
+          value: SettingsService.watermarkPosition,
+          items: [null, ...WatermarkPosition.values],
+          itemLabel: _watermarkPositionLabel,
+          sidebarFocusNode: widget.sidebarFocusNode,
+          onChanged: (position) async {
+            await SettingsService.setWatermarkPosition(position);
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 16),
         SettingToggleRow(
           label: '自动连播',
           subtitle: '视频播完自动播放下一集或推荐视频',
@@ -132,5 +157,15 @@ class _PlaybackSettingsState extends State<PlaybackSettings> {
     if (seconds < 60) return '$seconds 秒';
     final minutes = seconds ~/ 60;
     return '$minutes 分钟以上';
+  }
+
+  static String _watermarkPositionLabel(WatermarkPosition? position) {
+    return switch (position) {
+      null => '自动检测',
+      WatermarkPosition.topLeft => '左上',
+      WatermarkPosition.topRight => '右上',
+      WatermarkPosition.bottomLeft => '左下',
+      WatermarkPosition.bottomRight => '右下',
+    };
   }
 }

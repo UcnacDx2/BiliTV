@@ -5,6 +5,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/plugin/plugin_types.dart';
 import '../../models/video.dart';
 import '../../services/settings_service.dart';
+import '../../services/watermark_region.dart';
 import 'widgets/video_layer.dart';
 import 'widgets/danmaku_layer.dart';
 import 'widgets/controls_overlay.dart';
@@ -281,6 +282,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                   hideTopDanmaku: hideTopDanmaku,
                   hideBottomDanmaku: hideBottomDanmaku,
                   watermarkEnabled: watermarkEnabled,
+                  watermarkPositionDesc: watermarkPosition == null
+                      ? '自动检测'
+                      : switch (watermarkPosition!) {
+                          WatermarkPosition.topLeft => '左上',
+                          WatermarkPosition.topRight => '右上',
+                          WatermarkPosition.bottomLeft => '左下',
+                          WatermarkPosition.bottomRight => '右下',
+                        },
                   onNavigate: (type, index) {
                     setState(() {
                       settingsMenuType = type;
@@ -289,6 +298,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   },
                   onQualityPicker: showQualityPicker,
                   onWatermarkToggle: toggleWatermark,
+                  onWatermarkPositionChange: cycleWatermarkPosition,
                 ),
 
               // UP主面板

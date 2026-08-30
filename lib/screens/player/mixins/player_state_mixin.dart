@@ -16,6 +16,7 @@ mixin PlayerStateMixin on State<PlayerScreen> {
   int watermarkGeneration = 0;
   List<WatermarkRegion> activeWatermarkRegions = const [];
   bool watermarkEnabled = true;
+  WatermarkPosition? watermarkPosition;
   DanmakuController? danmakuController;
 
   // 插件跳过动作 (如空降助手)
