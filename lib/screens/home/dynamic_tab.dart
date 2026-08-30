@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -31,6 +30,7 @@ class DynamicTabState extends State<DynamicTab> {
   bool _hasLoaded = false;
   bool _isRefreshing = false; // 标记是否正在刷新中（用于控制分帧渲染）
   int _requestGeneration = 0;
+  String? _loadError;
   // 每个视频卡片的 FocusNode
   final Map<int, FocusNode> _videoFocusNodes = {};
 
@@ -95,6 +95,7 @@ class DynamicTabState extends State<DynamicTab> {
       setState(() {
         _isLoading = true;
         _isRefreshing = true; // 开始刷新
+        _loadError = null;
         _offset = '';
         _hasMore = true;
       });
@@ -112,7 +113,8 @@ class DynamicTabState extends State<DynamicTab> {
         // implementation converted every transport/API failure into an empty
         // successful feed, which permanently rendered the misleading
         // "暂无动态" state.
-        _isLoading = _videos.isEmpty;
+        _loadError = '动态加载失败，请再次刷新';
+        _isLoading = false;
       } else if (refresh) {
         _videos = feed.videos;
       } else {
@@ -124,6 +126,7 @@ class DynamicTabState extends State<DynamicTab> {
         _videos.addAll(newVideos);
       }
       if (feed.succeeded) {
+        _loadError = null;
         _offset = feed.offset;
         _hasMore = feed.hasMore;
         _isLoading = false;
@@ -168,6 +171,15 @@ class DynamicTabState extends State<DynamicTab> {
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_videos.isEmpty && _loadError != null) {
+      return Center(
+        child: Text(
+          _loadError!,
+          style: const TextStyle(color: Colors.white70, fontSize: 18),
+        ),
+      );
     }
 
     if (_videos.isEmpty) {
