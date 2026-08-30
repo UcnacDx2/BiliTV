@@ -44,8 +44,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     WidgetsBinding.instance.addObserver(this);
     // 保持屏幕常亮，防止电视待机
     WakelockPlus.enable();
-    loadSettings();
-    initializePlayer();
+    _bootstrapPlayer();
+  }
+
+  Future<void> _bootstrapPlayer() async {
+    await loadSettings();
+    if (mounted) await initializePlayer();
   }
 
   @override

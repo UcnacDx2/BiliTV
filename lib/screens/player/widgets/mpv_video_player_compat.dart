@@ -129,6 +129,14 @@ class VideoPlayerController {
         headers.entries.map((entry) => '${entry.key}: ${entry.value}').join('\n'),
       );
     }
+    // Match PiliPlus' Android timing defaults.  `audio` can accumulate
+    // video frame lateness on high-refresh/high-FPS streams, while
+    // display-resample keeps presentation on the display clock and autosync
+    // allows small A/V drift corrections without rebuilding the EDL.
+    if (platform is NativePlayer) {
+      await platform.setProperty('video-sync', 'display-resample');
+      await platform.setProperty('autosync', '30');
+    }
     await _player.open(_media, play: false);
     _update(isInitialized: true);
   }
