@@ -422,15 +422,17 @@ class VideoApi {
             }
           }
 
-          // The endpoint returns a mixed feed. If this page only contains
-          // non-video dynamics after filtering, follow the server cursor so
-          // the video-only tab does not incorrectly render as empty.
-          if (videos.isEmpty && hasMore && newOffset.isNotEmpty && newOffset != offset) {
-            return await getDynamicFeed(offset: newOffset);
+          final majorTypes = <String, int>{};
+          for (final item in items) {
+            final type =
+                (item['modules']?['module_dynamic']?['major']?['type'] as String?) ??
+                'none';
+            majorTypes[type] = (majorTypes[type] ?? 0) + 1;
           }
-
           debugPrint(
-            '[Dynamic] success items=${items.length} videos=${videos.length} hasMore=$hasMore',
+            '[Dynamic] success offset=${offset.isEmpty ? "first" : "cursor"} '
+            'items=${items.length} videos=${videos.length} hasMore=$hasMore '
+            'majorTypes=$majorTypes',
           );
           return DynamicFeed(
             videos: videos,
