@@ -18,10 +18,12 @@ class MainActivity : FlutterActivity() {
     private val DEBUG_CHANNEL = "com.bili.tv/mpv_debug"
     private val DEBUG_ACTION = "com.bili.tv.bili_tv_app.watermark.DEBUG_MPV"
     private var debugChannel: MethodChannel? = null
+    private val isDebugBuild: Boolean
+        get() = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
     private val debugReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (!BuildConfig.DEBUG) return
+            if (!isDebugBuild) return
             intent.getStringExtra("command")?.let { debugChannel?.invokeMethod("command", it) }
         }
     }
@@ -29,7 +31,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        if (BuildConfig.DEBUG) {
+        if (isDebugBuild) {
             debugChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEBUG_CHANNEL)
         }
         
@@ -71,7 +73,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (BuildConfig.DEBUG) {
+        if (isDebugBuild) {
             val filter = IntentFilter(DEBUG_ACTION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(debugReceiver, filter, Context.RECEIVER_EXPORTED)
@@ -82,7 +84,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onStop() {
-        if (BuildConfig.DEBUG) {
+        if (isDebugBuild) {
             try { unregisterReceiver(debugReceiver) } catch (_: IllegalArgumentException) { }
         }
         super.onStop()
