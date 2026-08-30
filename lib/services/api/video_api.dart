@@ -356,7 +356,11 @@ class VideoApi {
       final uri = Uri.parse(
         '${BaseApi.apiBase}/x/polymer/web-dynamic/v1/feed/all',
       ).replace(
-        queryParameters: {'type': 'all', 'offset': offset},
+        queryParameters: {
+          'type': 'all',
+          'offset': offset,
+          'features': 'itemOpusStyle,listOnlyfans,onlyfansQaCard',
+        },
       );
       final response = await http.get(
         uri,
@@ -417,6 +421,16 @@ class VideoApi {
             }
           }
 
+          // The endpoint returns a mixed feed. If this page only contains
+          // non-video dynamics after filtering, follow the server cursor so
+          // the video-only tab does not incorrectly render as empty.
+          if (videos.isEmpty && hasMore && newOffset.isNotEmpty && newOffset != offset) {
+            return await getDynamicFeed(offset: newOffset);
+          }
+
+          debugPrint(
+            '[Dynamic] success items=${items.length} videos=${videos.length} hasMore=$hasMore',
+          );
           return DynamicFeed(
             videos: videos,
             offset: newOffset,
