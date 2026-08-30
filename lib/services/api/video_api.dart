@@ -405,19 +405,22 @@ class VideoApi {
                   pic: BaseApi.fixPicUrl(archive['cover'] ?? ''),
                   ownerName: author['name'] ?? '',
                   ownerFace: BaseApi.fixPicUrl(author['face'] ?? ''),
-                  ownerMid: author['mid'] ?? 0,
+                  ownerMid: BaseApi.toInt(author['mid']),
                   view: BaseApi.toInt(viewValue),
                   danmaku: BaseApi.toInt(danmakuValue),
                   duration: BaseApi.parseDuration(
                     archive['duration_text'] ?? '',
                   ),
-                  pubdate: author['pub_ts'] ?? 0,
+                  pubdate: BaseApi.toInt(author['pub_ts']),
                   badge:
                       (archive['badge'] as Map<String, dynamic>?)?['text'] ??
                       '',
                 ),
               );
             } catch (e) {
+              debugPrint(
+                '[Dynamic] parse archive failed item=${item['id']} error=$e',
+              );
               continue;
             }
           }
