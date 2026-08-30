@@ -103,6 +103,7 @@ class VideoPlayerController {
         vo: 'gpu',
         hwdec: 'mediacodec,auto-safe',
         enableHardwareAcceleration: true,
+        androidAttachSurfaceAfterVideoParameters: false,
       ),
     );
     _subscriptions.addAll([
