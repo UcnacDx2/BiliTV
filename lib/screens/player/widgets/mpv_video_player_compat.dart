@@ -86,7 +86,7 @@ class VideoPlayerController {
       _player,
       configuration: const mk.VideoControllerConfiguration(
         vo: 'gpu',
-        hwdec: 'mediacodec-copy',
+        hwdec: 'mediacodec,auto-safe',
         enableHardwareAcceleration: true,
       ),
     );
