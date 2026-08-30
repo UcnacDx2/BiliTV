@@ -1538,6 +1538,9 @@ mixin PlayerActionMixin on PlayerStateMixin {
             focusedSettingIndex = 0;
           });
           break;
+        case 3:
+          toggleWatermark();
+          break;
       }
     } else if (settingsMenuType == SettingsMenuType.danmaku) {
       if (focusedSettingIndex == 0 ||
