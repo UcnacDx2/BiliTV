@@ -9,6 +9,7 @@ abstract final class MpvDebugControl {
   static const _channel = MethodChannel('com.bili.tv/mpv_debug');
   static MpvDebugHandler? _handler;
   static bool _initialized = false;
+  static Future<void> _commandTail = Future<void>.value();
 
   static Future<void> initialize() async {
     if (_initialized || !kDebugMode) return;
@@ -19,7 +20,9 @@ abstract final class MpvDebugControl {
       if (command == null || command.isEmpty) return 'invalid';
       final handler = _handler;
       if (handler == null) return 'no-active-player';
-      return handler(command);
+      final result = _commandTail.then((_) => handler(command));
+      _commandTail = result.then<void>((_) {}, onError: (_) {});
+      return result;
     });
   }
 
