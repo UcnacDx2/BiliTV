@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'base_api.dart';
 import 'sign_utils.dart';
@@ -350,12 +351,15 @@ class VideoApi {
   /// 获取动态视频列表
   static Future<DynamicFeed> getDynamicFeed({String offset = ''}) async {
     try {
-      await BaseApi.ensureWbiKeys();
-
+      // The polymer feed endpoint is cursor based and does not use WBI.
+      // Calling nav first made a refresh depend on an unrelated WBI request.
+      final uri = Uri.parse(
+        '${BaseApi.apiBase}/x/polymer/web-dynamic/v1/feed/all',
+      ).replace(
+        queryParameters: {'type': 'all', 'offset': offset},
+      );
       final response = await http.get(
-        Uri.parse(
-          '${BaseApi.apiBase}/x/polymer/web-dynamic/v1/feed/all?type=all&offset=$offset',
-        ),
+        uri,
         headers: BaseApi.getHeaders(withCookie: true),
       );
 
@@ -417,13 +421,24 @@ class VideoApi {
             videos: videos,
             offset: newOffset,
             hasMore: hasMore,
+            succeeded: true,
           );
         }
+        debugPrint(
+          '[Dynamic] API code=${json['code']} message=${json['message']}',
+        );
+      } else {
+        debugPrint('[Dynamic] HTTP ${response.statusCode}');
       }
     } catch (e) {
-      // 忽略错误
+      debugPrint('[Dynamic] request failed: $e');
     }
-    return DynamicFeed(videos: [], offset: '', hasMore: false);
+    return DynamicFeed(
+      videos: const [],
+      offset: offset,
+      hasMore: false,
+      succeeded: false,
+    );
   }
 
   /// 获取相关视频
@@ -501,10 +516,12 @@ class DynamicFeed {
   final List<Video> videos;
   final String offset;
   final bool hasMore;
+  final bool succeeded;
 
   DynamicFeed({
     required this.videos,
     required this.offset,
     required this.hasMore,
+    this.succeeded = true,
   });
 }

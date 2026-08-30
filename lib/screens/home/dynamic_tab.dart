@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -29,6 +30,7 @@ class DynamicTabState extends State<DynamicTab> {
   bool _isLoadingMore = false;
   bool _hasLoaded = false;
   bool _isRefreshing = false; // 标记是否正在刷新中（用于控制分帧渲染）
+  int _requestGeneration = 0;
   // 每个视频卡片的 FocusNode
   final Map<int, FocusNode> _videoFocusNodes = {};
 
@@ -84,26 +86,34 @@ class DynamicTabState extends State<DynamicTab> {
   }
 
   Future<void> _loadDynamic({bool refresh = false}) async {
+    if (!_hasMore && !refresh) {
+      _isLoadingMore = false;
+      return;
+    }
+    final generation = ++_requestGeneration;
     if (refresh) {
       setState(() {
         _isLoading = true;
         _isRefreshing = true; // 开始刷新
-        _videos = [];
         _offset = '';
         _hasMore = true;
       });
     }
 
-    if (!_hasMore && !refresh) return;
-
     final feed = await BilibiliApi.getDynamicFeed(
       offset: refresh ? '' : _offset,
     );
 
-    if (!mounted) return;
+    if (!mounted || generation != _requestGeneration) return;
 
     setState(() {
-      if (refresh) {
+      if (!feed.succeeded) {
+        // Keep already visible content when a refresh fails. The previous
+        // implementation converted every transport/API failure into an empty
+        // successful feed, which permanently rendered the misleading
+        // "暂无动态" state.
+        _isLoading = _videos.isEmpty;
+      } else if (refresh) {
         _videos = feed.videos;
       } else {
         // 去重：过滤掉已存在的视频
@@ -113,9 +123,11 @@ class DynamicTabState extends State<DynamicTab> {
             .toList();
         _videos.addAll(newVideos);
       }
-      _offset = feed.offset;
-      _hasMore = feed.hasMore;
-      _isLoading = false;
+      if (feed.succeeded) {
+        _offset = feed.offset;
+        _hasMore = feed.hasMore;
+        _isLoading = false;
+      }
       _isLoadingMore = false;
       _isRefreshing = false; // 刷新完成
     });
