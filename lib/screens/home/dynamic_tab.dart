@@ -137,7 +137,7 @@ class DynamicTabState extends State<DynamicTab> {
   }
 
   Future<void> _loadMore() async {
-    if (_isLoadingMore || !_hasMore) return;
+    if (_isLoadingMore || _isRefreshing || _isLoading || !_hasMore) return;
     setState(() => _isLoadingMore = true);
     await _loadDynamic(refresh: false);
   }
