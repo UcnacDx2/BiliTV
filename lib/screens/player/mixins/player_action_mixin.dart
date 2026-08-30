@@ -29,6 +29,23 @@ import 'package:path_provider/path_provider.dart';
 
 /// 播放器逻辑 Mixin
 mixin PlayerActionMixin on PlayerStateMixin {
+  static const _uiUpdateInterval = Duration(milliseconds: 150);
+  static const _danmakuUpdateInterval = Duration(milliseconds: 100);
+  static const _pluginUpdateInterval = Duration(milliseconds: 250);
+  static const _spritePreloadInterval = Duration(milliseconds: 500);
+
+  DateTime? _lastUiUpdateAt;
+  DateTime? _lastDanmakuUpdateAt;
+  DateTime? _lastPluginUpdateAt;
+  DateTime? _lastSpritePreloadAt;
+  Duration? _lastObservedPosition;
+  Duration? _lastObservedDuration;
+  bool? _lastObservedPlaying;
+  bool _pluginUpdateInFlight = false;
+  bool _pluginImmediatePending = false;
+  Duration? _pendingPluginPosition;
+  Timer? _pluginThrottleTimer;
+
   Map<String, String> _videoPlaybackHeaders() {
     final headers = AccountStore.headers(AccountRole.video);
     headers['Origin'] = 'https://www.bilibili.com';
@@ -523,14 +540,34 @@ mixin PlayerActionMixin on PlayerStateMixin {
     if (videoController == null || !mounted) return;
 
     final value = videoController!.value;
+    final now = DateTime.now();
+    final positionMovedBack = _lastObservedPosition != null &&
+        value.position < _lastObservedPosition!;
+    final playbackStateChanged =
+        _lastObservedPlaying != value.isPlaying ||
+        _lastObservedDuration != value.duration;
+    _lastObservedPosition = value.position;
+    _lastObservedPlaying = value.isPlaying;
+    _lastObservedDuration = value.duration;
 
     // 同步弹幕
     if (danmakuEnabled && danmakuController != null) {
-      syncDanmaku(value.position.inSeconds.toDouble());
+      final shouldSyncDanmaku =
+          positionMovedBack ||
+          _lastDanmakuUpdateAt == null ||
+          now.difference(_lastDanmakuUpdateAt!) >= _danmakuUpdateInterval;
+      if (shouldSyncDanmaku) {
+        _lastDanmakuUpdateAt = now;
+        syncDanmaku(value.position.inSeconds.toDouble());
+      }
     }
 
     // 检查是否需要预加载下一张雪碧图
-    _checkSpritePreload(value.position);
+    if (_lastSpritePreloadAt == null ||
+        now.difference(_lastSpritePreloadAt!) >= _spritePreloadInterval) {
+      _lastSpritePreloadAt = now;
+      _checkSpritePreload(value.position);
+    }
 
     // 检查播放完成
     if (value.position >= value.duration &&
@@ -540,14 +577,65 @@ mixin PlayerActionMixin on PlayerStateMixin {
       onVideoComplete();
     }
 
-    // 触发重绘以更新 UI (进度条等)
-    setState(() {});
+    // 触发重绘以更新 UI (进度条等)。播放器的 position 事件频率高于
+    // TV UI 的可见刷新需求；状态变化和 seek 回退仍然立即刷新。
+    final shouldUpdateUi =
+        playbackStateChanged ||
+        positionMovedBack ||
+        _lastUiUpdateAt == null ||
+        now.difference(_lastUiUpdateAt!) >= _uiUpdateInterval;
+    if (shouldUpdateUi) {
+      _lastUiUpdateAt = now;
+      setState(() {});
+    }
 
-    // 插件处理 (Debounce logic internal to plugin, but we update UI here)
-    _handlePlugins(value.position);
+    // 插件处理：保持最新 position，但只允许一个异步检查运行。
+    _queuePluginUpdate(value.position, immediate: positionMovedBack);
   }
 
-  void _handlePlugins(Duration position) async {
+  void _queuePluginUpdate(Duration position, {bool immediate = false}) {
+    _pendingPluginPosition = position;
+    if (immediate) _pluginImmediatePending = true;
+    if (_pluginUpdateInFlight || !mounted) return;
+
+    final now = DateTime.now();
+    final elapsed = _lastPluginUpdateAt == null
+        ? _pluginUpdateInterval
+        : now.difference(_lastPluginUpdateAt!);
+    final delay = immediate || elapsed >= _pluginUpdateInterval
+        ? Duration.zero
+        : _pluginUpdateInterval - elapsed;
+    _pluginThrottleTimer ??= Timer(delay, () {
+      _pluginThrottleTimer = null;
+      _startQueuedPluginUpdate();
+    });
+  }
+
+  void _startQueuedPluginUpdate() {
+    if (_pluginUpdateInFlight || !mounted) return;
+    final position = _pendingPluginPosition;
+    if (position == null) return;
+    _pendingPluginPosition = null;
+    _pluginImmediatePending = false;
+    _pluginUpdateInFlight = true;
+    _lastPluginUpdateAt = DateTime.now();
+    unawaited(_runQueuedPluginUpdate(position));
+  }
+
+  Future<void> _runQueuedPluginUpdate(Duration position) async {
+    try {
+      await _handlePlugins(position);
+    } finally {
+      _pluginUpdateInFlight = false;
+      if (mounted && _pendingPluginPosition != null) {
+        final immediate = _pluginImmediatePending;
+        _pluginImmediatePending = false;
+        _queuePluginUpdate(_pendingPluginPosition!, immediate: immediate);
+      }
+    }
+  }
+
+  Future<void> _handlePlugins(Duration position) async {
     final plugins = PluginManager().getEnabledPlugins<PlayerPlugin>();
     if (plugins.isEmpty) return;
 
@@ -594,6 +682,18 @@ mixin PlayerActionMixin on PlayerStateMixin {
   }
 
   Future<void> disposePlayer() async {
+    _pluginThrottleTimer?.cancel();
+    _pluginThrottleTimer = null;
+    _pendingPluginPosition = null;
+    _pluginImmediatePending = false;
+    _pluginUpdateInFlight = false;
+    _lastUiUpdateAt = null;
+    _lastDanmakuUpdateAt = null;
+    _lastPluginUpdateAt = null;
+    _lastSpritePreloadAt = null;
+    _lastObservedPosition = null;
+    _lastObservedDuration = null;
+    _lastObservedPlaying = null;
     watermarkGeneration++;
     final oldPlayer = videoController;
     final oldShaderPath = watermarkShaderPath;
