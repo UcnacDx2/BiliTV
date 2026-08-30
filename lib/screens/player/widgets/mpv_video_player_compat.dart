@@ -65,8 +65,23 @@ class VideoPlayerController {
   VideoPlayerController.networkUrl(
     Uri url, {
     Map<String, String>? httpHeaders,
+    String? audioUrl,
     VideoViewType viewType = VideoViewType.textureView,
-  }) : _media = Media(url.toString(), httpHeaders: httpHeaders);
+  }) : _media = Media(
+          _buildMediaUrl(url.toString(), audioUrl),
+          httpHeaders: httpHeaders,
+        );
+
+  static String _buildMediaUrl(String videoUrl, String? audioUrl) {
+    if (audioUrl == null || audioUrl.isEmpty) return videoUrl;
+
+    // Keep DASH A/V in one mpv timeline, matching PiliPlus. Opening the
+    // video first and attaching an external audio track afterwards lets mpv
+    // establish its clock before the second stream exists.
+    return 'edl://'
+        '!no_clip;!no_chapters;%${videoUrl.length}%$videoUrl;'
+        '!new_stream;!no_clip;!no_chapters;%${audioUrl.length}%$audioUrl';
+  }
 
   final Media _media;
   late final Player _player;

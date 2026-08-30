@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:media_kit/media_kit.dart';
 import '../../../models/video.dart' as models;
 import '../../../services/bilibili_api.dart';
 import '../../../services/settings_service.dart';
@@ -295,15 +294,12 @@ mixin PlayerActionMixin on PlayerStateMixin {
             videoController = VideoPlayerController.networkUrl(
               Uri.parse(playUrl!),
               httpHeaders: _videoPlaybackHeaders(),
+              audioUrl: playInfo['audioUrl'] as String?,
               viewType: VideoViewType.platformView,
             );
 
             // 初始化
             await videoController!.initialize();
-            final audioUrl = playInfo['audioUrl'] as String?;
-            if (audioUrl != null && audioUrl.isNotEmpty) {
-              await videoController!.player.setAudioTrack(AudioTrack.uri(audioUrl));
-            }
             break; // 成功，跳出循环
           } catch (e) {
             // 清理失败的控制器
@@ -1278,14 +1274,11 @@ mixin PlayerActionMixin on PlayerStateMixin {
         videoController = VideoPlayerController.networkUrl(
           Uri.parse(playUrl!),
           httpHeaders: _videoPlaybackHeaders(),
+          audioUrl: playInfo['audioUrl'] as String?,
           viewType: VideoViewType.platformView,
         );
 
         await videoController!.initialize();
-        final audioUrl = playInfo['audioUrl'] as String?;
-        if (audioUrl != null && audioUrl.isNotEmpty) {
-          await videoController!.player.setAudioTrack(AudioTrack.uri(audioUrl));
-        }
 
         _setupPlayerListeners();
         unawaited(_startWatermarkProcessing());
@@ -1385,14 +1378,11 @@ mixin PlayerActionMixin on PlayerStateMixin {
       videoController = VideoPlayerController.networkUrl(
         Uri.parse(playUrl!),
         httpHeaders: _videoPlaybackHeaders(),
+        audioUrl: playInfo['audioUrl'] as String?,
         viewType: VideoViewType.platformView,
       );
 
       await videoController!.initialize();
-      final audioUrl = playInfo['audioUrl'] as String?;
-      if (audioUrl != null && audioUrl.isNotEmpty) {
-        await videoController!.player.setAudioTrack(AudioTrack.uri(audioUrl));
-      }
       await videoController!.seekTo(position);
       resetDanmakuIndex(position);
 
