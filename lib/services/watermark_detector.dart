@@ -122,19 +122,53 @@ abstract final class WatermarkDetector {
   }
 
   static WatermarkRegion? _detectSingle(WatermarkFrame frame) {
-    final best = _corners.map((c) => _bestMatch(_edge(frame), frame.width, frame.height, c)).toList()
+    final edge = _edge(frame);
+    final best = _corners.map((c) => _bestMatch(edge, frame.width, frame.height, c)).toList()
       ..sort((a, b) => b.score.compareTo(a.score));
-    if (best.isEmpty || best.first.score < 0.88 || best.first.score - best[1].score < 0.2) return null;
+    if (best.isEmpty ||
+        best.first.score < 0.88 ||
+        best.first.noise > 0.65 ||
+        best.first.score - best[1].score < 0.2) {
+      return null;
+    }
     final m = best.first;
     final w = frame.width;
     final h = frame.height;
     final tw = _template.first.length;
     final th = _template.length;
+    final top = max(1, m.y - 4);
+    final bottom = min(h - 1, m.y + th + 4);
+    final right = min(w, m.x + tw + 4);
+    final scanLimit = max(0, right - (w * 0.44).round());
+    final minimumActiveEdges = max(3, ((bottom - top + 1) * 0.18).round());
+    final maxBlankRun = max(7, (w * 0.015).round());
+    var left = m.x;
+    var blankRun = 0;
+    var stoppedAtBlank = false;
+    for (var x = m.x - 1; x >= scanLimit; x--) {
+      var edgeCount = 0;
+      for (var y = top; y <= bottom; y++) {
+        if (edge[y * w + x] != 0) edgeCount++;
+      }
+      if (edgeCount >= minimumActiveEdges) {
+        left = x;
+        blankRun = 0;
+      } else {
+        blankRun++;
+        if (blankRun >= maxBlankRun) {
+          stoppedAtBlank = true;
+          break;
+        }
+      }
+    }
+    if (!stoppedAtBlank && left <= scanLimit + 1) left = m.x;
+    final paddingX = max(4, (w * 0.008).round());
+    final paddingY = max(3, (h * 0.01).round());
     return WatermarkRegion(
-      left: max(0, m.x - (tw * 1.5).round()) / w,
-      top: max(0, m.y - 5) / h,
-      right: min(w, m.x + tw + 6) / w,
-      bottom: min(h, m.y + th + 6) / h,
+      left: max(0, left - paddingX) / w,
+      top: max(0, top - paddingY) / h,
+      right: min(w, right + paddingX) / w,
+      bottom: min(h, bottom + paddingY) / h,
       confidence: m.score,
     );
   }
@@ -202,17 +236,28 @@ abstract final class WatermarkDetector {
     final th = _template.length;
     final template = [for (final row in _template) for (final char in row.codeUnits) char == 35 ? 1 : 0];
     final count = template.where((x) => x != 0).length;
+    final backgroundCount = template.length - count;
     final roi = _roi(w, h, c, .25, .18);
-    var best = _Match(c, 0, 0, 0);
+    var best = _Match(c, 0, 0, 0, 1);
     for (var y = roi.top; y <= roi.bottom - th; y++) {
       for (var x = roi.left; x <= roi.right - tw; x++) {
         var hit = 0;
+        var backgroundEdges = 0;
         for (var ty = 0; ty < th; ty++) {
           for (var tx = 0; tx < tw; tx++) {
-            if (template[ty * tw + tx] != 0 && edge[(y + ty) * w + x + tx] != 0) hit++;
+            if (edge[(y + ty) * w + x + tx] == 0) continue;
+            if (template[ty * tw + tx] != 0) {
+              hit++;
+            } else {
+              backgroundEdges++;
+            }
           }
         }
-        if (hit / count > best.score) best = _Match(c, x, y, hit / count);
+        final score = hit / count;
+        final noise = backgroundEdges / backgroundCount;
+        if (score > best.score || (score == best.score && noise < best.noise)) {
+          best = _Match(c, x, y, score, noise);
+        }
       }
     }
     return best;
@@ -266,6 +311,6 @@ abstract final class WatermarkDetector {
 
 class _Corner { const _Corner(this.left, this.top); final bool left; final bool top; }
 const _corners = [_Corner(true, true), _Corner(false, true), _Corner(true, false), _Corner(false, false)];
-class _Match { const _Match(this.corner, this.x, this.y, this.score); final _Corner corner; final int x; final int y; final double score; }
+class _Match { const _Match(this.corner, this.x, this.y, this.score, this.noise); final _Corner corner; final int x; final int y; final double score; final double noise; }
 class _Roi { const _Roi(this.left, this.top, this.width, this.height); final int left; final int top; final int width; final int height; int get right => left + width; int get bottom => top + height; }
 class _Component { const _Component(this.left, this.top, this.right, this.bottom, this.area); final int left; final int top; final int right; final int bottom; final int area; int get width => right - left; int get height => bottom - top; }
