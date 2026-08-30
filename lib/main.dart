@@ -9,12 +9,14 @@ import 'package:bili_tv_app/plugins/ad_filter_plugin.dart';
 import 'package:bili_tv_app/plugins/danmaku_enhance_plugin.dart';
 import 'services/auth_service.dart';
 import 'services/local_server.dart';
+import 'services/mpv_debug_control.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Required by the isolated libmpv research probe. The production player
   // remains on video_player until the GPU VO gate passes.
   MediaKit.ensureInitialized();
+  await MpvDebugControl.initialize();
 
   // 🔥 增大图片内存缓存，防止播放视频时主页图片被回收
   PaintingBinding.instance.imageCache.maximumSize = 500; // 500张图片

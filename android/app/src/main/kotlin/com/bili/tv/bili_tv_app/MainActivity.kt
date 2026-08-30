@@ -1,6 +1,9 @@
 package com.bili.tv.bili_tv_app
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.MediaCodecList
 import android.os.Build
 import androidx.core.content.FileProvider
@@ -12,9 +15,23 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val UPDATE_CHANNEL = "com.bili.tv/update"
     private val CODEC_CHANNEL = "com.bili.tv/codec"
+    private val DEBUG_CHANNEL = "com.bili.tv/mpv_debug"
+    private val DEBUG_ACTION = "com.bili.tv.bili_tv_app.watermark.DEBUG_MPV"
+    private var debugChannel: MethodChannel? = null
+
+    private val debugReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (!BuildConfig.DEBUG) return
+            intent.getStringExtra("command")?.let { debugChannel?.invokeMethod("command", it) }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        if (BuildConfig.DEBUG) {
+            debugChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEBUG_CHANNEL)
+        }
         
         // 更新安装 Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, UPDATE_CHANNEL).setMethodCallHandler { call, result ->
@@ -50,6 +67,25 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (BuildConfig.DEBUG) {
+            val filter = IntentFilter(DEBUG_ACTION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(debugReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(debugReceiver, filter)
+            }
+        }
+    }
+
+    override fun onStop() {
+        if (BuildConfig.DEBUG) {
+            try { unregisterReceiver(debugReceiver) } catch (_: IllegalArgumentException) { }
+        }
+        super.onStop()
     }
     
     // 获取硬件解码器支持的格式

@@ -26,6 +26,8 @@ import '../../../services/watermark_filter.dart';
 import '../../../services/watermark_region.dart';
 import '../../../services/first_frame_watermark_service.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:media_kit/media_kit.dart';
+import '../../../services/mpv_debug_control.dart';
 
 /// 播放器逻辑 Mixin
 mixin PlayerActionMixin on PlayerStateMixin {
@@ -45,6 +47,8 @@ mixin PlayerActionMixin on PlayerStateMixin {
   bool _pluginImmediatePending = false;
   Duration? _pendingPluginPosition;
   Timer? _pluginThrottleTimer;
+  MpvDebugHandler? _mpvDebugHandler;
+  bool _watermarkDebugDisabled = false;
 
   Map<String, String> _videoPlaybackHeaders() {
     final headers = AccountStore.headers(AccountRole.video);
@@ -487,7 +491,11 @@ mixin PlayerActionMixin on PlayerStateMixin {
           await FirstFrameWatermarkService.detect(widget.video.bvid);
       if (generation != watermarkGeneration || !identical(player, videoController)) return;
       if (firstFrameRegion != null) {
-        await WatermarkFilter.apply(player.player, shaderPath, [firstFrameRegion]);
+        if (_watermarkDebugDisabled) {
+          await WatermarkFilter.clear(player.player, shaderPath);
+        } else {
+          await WatermarkFilter.apply(player.player, shaderPath, [firstFrameRegion]);
+        }
         if (generation == watermarkGeneration && identical(player, videoController)) {
           watermarkShaderPath = shaderPath;
           activeWatermarkRegions = [firstFrameRegion];
@@ -515,7 +523,11 @@ mixin PlayerActionMixin on PlayerStateMixin {
             : await WatermarkDetector.detectSingleBilibili(frame);
         if (generation != watermarkGeneration || !identical(player, videoController)) return;
         final regions = detected == null ? const <WatermarkRegion>[] : [detected];
-        await WatermarkFilter.apply(player.player, shaderPath, regions);
+        if (_watermarkDebugDisabled) {
+          await WatermarkFilter.clear(player.player, shaderPath);
+        } else {
+          await WatermarkFilter.apply(player.player, shaderPath, regions);
+        }
         if (generation == watermarkGeneration && identical(player, videoController)) {
           watermarkShaderPath = shaderPath;
           activeWatermarkRegions = regions;
@@ -534,6 +546,75 @@ mixin PlayerActionMixin on PlayerStateMixin {
     if (videoController == null) return;
 
     videoController!.addListener(_onPlayerStateChange);
+    _mpvDebugHandler ??= _handleMpvDebugCommand;
+    MpvDebugControl.attach(_mpvDebugHandler!);
+  }
+
+  Future<String> _handleMpvDebugCommand(String command) async {
+    final controller = videoController;
+    if (controller == null) return 'no-active-player';
+    final platform = controller.player.platform;
+    if (platform is! NativePlayer) return 'no-native-player';
+
+    try {
+      switch (command) {
+        case 'shader-off':
+          final path = watermarkShaderPath;
+          if (path != null) await WatermarkFilter.clear(controller.player, path);
+          _watermarkDebugDisabled = true;
+          return 'shader=off';
+        case 'shader-on':
+          _watermarkDebugDisabled = false;
+          final path = watermarkShaderPath;
+          if (path != null && activeWatermarkRegions.isNotEmpty) {
+            await WatermarkFilter.apply(controller.player, path, activeWatermarkRegions);
+          }
+          return 'shader=on';
+        case 'video-sync=audio':
+          await platform.command(['set', 'video-sync', 'audio']);
+          return 'video-sync=audio';
+        case 'video-sync=display-resample':
+          await platform.command(['set', 'video-sync', 'display-resample']);
+          return 'video-sync=display-resample';
+        case 'hwdec=no':
+        case 'hwdec=mediacodec':
+        case 'hwdec=mediacodec,auto-safe':
+          final value = command.substring('hwdec='.length);
+          await platform.command(['set', 'hwdec', value]);
+          return 'hwdec=$value';
+        case 'dump':
+          final properties = <String, String>{};
+          for (final name in [
+            'video-sync',
+            'hwdec',
+            'hwdec-current',
+            'vo',
+            'video-params',
+            'container-fps',
+            'estimated-vf-fps',
+            'vo-drop-frame-count',
+            'decoder-frame-drop-count',
+            'glsl-shaders',
+          ]) {
+            properties[name] = await platform.getProperty(name);
+          }
+          final result = properties.entries.map((e) => '${e.key}=${e.value}').join(' ');
+          debugPrint('[MPV_DEBUG] $result');
+          return result;
+        case 'reset':
+          _watermarkDebugDisabled = false;
+          final path = watermarkShaderPath;
+          if (path != null && activeWatermarkRegions.isNotEmpty) {
+            await WatermarkFilter.apply(controller.player, path, activeWatermarkRegions);
+          }
+          return 'reset=watermark';
+        default:
+          return 'rejected';
+      }
+    } catch (error) {
+      debugPrint('[MPV_DEBUG] command=$command error=$error');
+      return 'error=${error.runtimeType}';
+    }
   }
 
   void _onPlayerStateChange() {
@@ -682,6 +763,10 @@ mixin PlayerActionMixin on PlayerStateMixin {
   }
 
   Future<void> disposePlayer() async {
+    final debugHandler = _mpvDebugHandler;
+    if (debugHandler != null) MpvDebugControl.detach(debugHandler);
+    _mpvDebugHandler = null;
+    _watermarkDebugDisabled = false;
     _pluginThrottleTimer?.cancel();
     _pluginThrottleTimer = null;
     _pendingPluginPosition = null;
