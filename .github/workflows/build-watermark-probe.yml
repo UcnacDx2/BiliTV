@@ -55,6 +55,7 @@ jobs:
           flutter clean
           flutter pub get
           flutter build apk --debug --dart-define=MPV_GPU_PROBE=false
+          mkdir -p build/watermark-artifacts
           cp build/app/outputs/flutter-apk/app-debug.apk build/watermark-artifacts/BiliTV-watermark-player.apk
 
       - name: Upload GPU probe APK
