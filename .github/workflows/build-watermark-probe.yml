@@ -44,8 +44,8 @@ jobs:
       - name: Build GPU probe APK
         run: |
           flutter build apk --debug --dart-define=MPV_GPU_PROBE=true
-          mkdir -p build/watermark-artifacts
-          cp build/app/outputs/flutter-apk/app-debug.apk build/watermark-artifacts/BiliTV-watermark-gpu-probe.apk
+          mkdir -p /tmp/bili-watermark-artifacts
+          cp build/app/outputs/flutter-apk/app-debug.apk /tmp/bili-watermark-artifacts/BiliTV-watermark-gpu-probe.apk
 
       - name: Build normal research APK
         run: |
@@ -56,6 +56,7 @@ jobs:
           flutter pub get
           flutter build apk --debug --dart-define=MPV_GPU_PROBE=false
           mkdir -p build/watermark-artifacts
+          cp /tmp/bili-watermark-artifacts/BiliTV-watermark-gpu-probe.apk build/watermark-artifacts/BiliTV-watermark-gpu-probe.apk
           cp build/app/outputs/flutter-apk/app-debug.apk build/watermark-artifacts/BiliTV-watermark-player.apk
 
       - name: Upload GPU probe APK
