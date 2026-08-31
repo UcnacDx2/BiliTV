@@ -24,18 +24,18 @@ abstract final class WatermarkFilter {
         ..writeln('  const vec4 region$i = vec4('
             '${_number(r.left)}, ${_number(r.top)}, '
             '${_number(r.right)}, ${_number(r.bottom)});')
-        ..writeln('  if (bili_inside(HOOKED_pos, region$i)) {')
-        ..writeln('    color = bili_fill(HOOKED_pos, region$i);')
+        ..writeln('  ${i == 0 ? 'if' : 'else if'} '
+            '(bili_inside(HOOKED_pos, region$i)) {')
+        ..writeln('    color = bili_fill(HOOKED_pos, region$i, pad);')
         ..writeln('  }');
     }
     return '''//!HOOK MAIN
 //!BIND HOOKED
 //!DESC BiliTV watermark removal
 
-vec4 bili_fill(vec2 uv, vec4 rect) {
+vec4 bili_fill(vec2 uv, vec4 rect, vec2 pad) {
   vec2 size = max(rect.zw - rect.xy, vec2(0.000001));
   vec2 position = clamp((uv - rect.xy) / size, 0.0, 1.0);
-  vec2 pad = max(HOOKED_pt * 2.0, vec2(0.0005));
   vec4 left = HOOKED_tex(vec2(max(rect.x - pad.x, 0.0), uv.y));
   vec4 right = HOOKED_tex(vec2(min(rect.z + pad.x, 1.0), uv.y));
   vec4 top = HOOKED_tex(vec2(uv.x, max(rect.y - pad.y, 0.0)));
@@ -59,6 +59,7 @@ bool bili_inside(vec2 uv, vec4 rect) {
 
 vec4 hook() {
   vec4 color = HOOKED_tex(HOOKED_pos);
+  vec2 pad = max(HOOKED_pt * 2.0, vec2(0.0005));
 ${body.toString()}  return color;
 }
 ''';
