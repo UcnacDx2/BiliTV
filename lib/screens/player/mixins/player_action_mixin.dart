@@ -526,20 +526,34 @@ mixin PlayerActionMixin on PlayerStateMixin {
             initialProgress = historyProgress;
 
             final seekPos = Duration(seconds: historyProgress);
-            await videoController!.seekTo(seekPos);
-            resetDanmakuIndex(seekPos);
+            // mpv may accept the seek command before the EDL timeline is
+            // ready, then discard it when playback starts. Start the clock,
+            // seek after readiness, and only announce a resume once the
+            // reported position confirms the seek actually landed.
+            await videoController!.play();
+            final seekConfirmed = await _seekAndConfirmResume(seekPos);
+            if (seekConfirmed) {
+              resetDanmakuIndex(seekPos);
 
-            final min = historyProgress ~/ 60;
-            final sec = historyProgress % 60;
-            Fluttertoast.showToast(
-              msg:
+              final min = historyProgress ~/ 60;
+              final sec = historyProgress % 60;
+              Fluttertoast.showToast(
+                msg:
                   '从${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}继续播放',
-              toastLength: Toast.LENGTH_SHORT,
-            );
+                toastLength: Toast.LENGTH_SHORT,
+              );
+            } else {
+              debugPrint(
+                '🎬 [Resume] Seek confirmation timed out at ${seekPos.inSeconds}s; '
+                'continuing from actual position ${videoController!.value.position.inSeconds}s',
+              );
+            }
           }
         }
 
-        await videoController!.play();
+        if (!videoController!.value.isPlaying) {
+          await videoController!.play();
+        }
         startHideTimer();
 
         await loadDanmaku();
@@ -666,6 +680,31 @@ mixin PlayerActionMixin on PlayerStateMixin {
     } catch (error) {
       debugPrint('🎬 [Watermark] detection failed: $error');
     }
+  }
+
+  Future<bool> _seekAndConfirmResume(Duration target) async {
+    final controller = videoController;
+    if (controller == null) return false;
+
+    // Give mpv a short window to publish stream parameters before seeking.
+    for (var i = 0; i < 20; i++) {
+      if (controller.value.duration > Duration.zero ||
+          controller.value.isPlaying) {
+        break;
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    for (var attempt = 0; attempt < 2; attempt++) {
+      await controller.seekTo(target);
+      for (var i = 0; i < 10; i++) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        final delta =
+            (controller.value.position - target).inMilliseconds.abs();
+        if (delta <= 2000) return true;
+      }
+    }
+    return false;
   }
 
   void _setupPlayerListeners() {
