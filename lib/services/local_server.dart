@@ -22,6 +22,7 @@ class LocalServer {
   HttpServer? _server;
   String? _currentMpdContent;
   String? _localIp;
+  int? _boundPort;
 
   static const int port = 3322;
 
@@ -29,10 +30,13 @@ class LocalServer {
   bool get isRunning => _server != null;
 
   /// 获取服务地址 (用于显示)
-  String? get address => _localIp != null ? 'http://$_localIp:$port' : null;
+  int get activePort => _boundPort ?? port;
+
+  String? get address =>
+      _localIp != null ? 'http://$_localIp:$activePort' : null;
 
   /// 获取 MPD 播放地址
-  String get mpdUrl => 'http://127.0.0.1:$port/video.mpd';
+  String get mpdUrl => 'http://127.0.0.1:$activePort/video.mpd';
 
   /// 启动服务
   Future<void> start() async {
@@ -42,11 +46,18 @@ class LocalServer {
       // 获取本地 IP（使用 NetworkInterface）
       _localIp = await _getLocalIp();
 
-      // 绑定到所有网络接口
-      _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+      // 绑定到所有网络接口。3322 是既有管理页端口；部分电视固件
+      // 会被系统服务占用，因此仅在冲突时回退到 3323，保证播放器仍可用。
+      try {
+        _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+        _boundPort = port;
+      } on SocketException {
+        _server = await HttpServer.bind(InternetAddress.anyIPv4, port + 1);
+        _boundPort = port + 1;
+      }
       _server!.listen(_handleRequest);
 
-      debugPrint('🌐 LocalServer started at http://$_localIp:$port');
+      debugPrint('🌐 LocalServer started at http://$_localIp:$activePort');
     } catch (e) {
       debugPrint('❌ LocalServer failed to start: $e');
     }
@@ -91,6 +102,7 @@ class LocalServer {
   Future<void> stop() async {
     await _server?.close();
     _server = null;
+    _boundPort = null;
     _currentMpdContent = null;
     debugPrint('🔴 LocalServer stopped');
   }
