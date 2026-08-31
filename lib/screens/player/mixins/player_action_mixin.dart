@@ -477,10 +477,33 @@ mixin PlayerActionMixin on PlayerStateMixin {
         // Use the model duration as a fallback while the controller is still
         // loading, then clamp before seeking or showing the resume toast.
         final controllerDuration = videoController!.value.duration.inSeconds;
-        final modelDuration = widget.video.duration;
+        final currentPage = episodes.where(
+          (page) => BaseApi.toInt(page['cid']) == cid,
+        );
+        final pageDuration = currentPage.isEmpty
+            ? 0
+            : BaseApi.toInt(currentPage.first['duration']);
+        final infoDuration = BaseApi.toInt(fullVideoInfo?['duration']);
+        final modelDuration = pageDuration > 0
+            ? pageDuration
+            : (infoDuration > 0 ? infoDuration : widget.video.duration);
         final videoDuration = controllerDuration > 0
             ? controllerDuration
             : modelDuration;
+        // Some history endpoints/runtimes report milliseconds while the
+        // player UI and model use seconds. Normalize only when the duration
+        // makes the unit unambiguous; otherwise the regular bounds clamp
+        // below remains the final safety net.
+        if (historyProgress > 0 && videoDuration > 0 &&
+            historyProgress > videoDuration &&
+            (historyProgress / 1000) <= videoDuration + 5) {
+          final originalProgress = historyProgress;
+          historyProgress = historyProgress ~/ 1000;
+          debugPrint(
+            '🎬 [Resume] Normalized millisecond progress '
+            '$originalProgress -> $historyProgress (duration $videoDuration)',
+          );
+        }
         if (historyProgress > 0 && videoDuration > 0) {
           final maxResume = videoDuration > 1 ? videoDuration - 1 : 0;
           if (historyProgress > maxResume) {
