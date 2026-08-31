@@ -231,6 +231,16 @@ class SettingsService {
 
   // 首选编解码器设置
   static const String _preferredCodecKey = 'preferred_codec';
+  static const String _preferredQualityKey = 'preferred_quality';
+
+  /// Maximum requested video quality. 0 means highest available.
+  static int get preferredQuality =>
+      _prefs?.getInt(_preferredQualityKey) ?? 0;
+
+  static Future<void> setPreferredQuality(int qn) async {
+    await init();
+    await _prefs!.setInt(_preferredQualityKey, qn);
+  }
 
   /// 获取首选编解码器
   static VideoCodec get preferredCodec {

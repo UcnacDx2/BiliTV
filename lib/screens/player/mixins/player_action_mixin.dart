@@ -50,6 +50,18 @@ mixin PlayerActionMixin on PlayerStateMixin {
   MpvDebugHandler? _mpvDebugHandler;
   bool _watermarkDebugDisabled = false;
 
+  /// Select the highest quality that does not exceed [cap]. A zero cap keeps
+  /// the historical behaviour of selecting the highest advertised quality.
+  /// If a cap is requested but the server advertises nothing at or below it,
+  /// fall back to the lowest available quality rather than exceeding the cap.
+  int _qualityTarget(List<int> supportedQns, int cap) {
+    if (supportedQns.isEmpty) return cap > 0 ? cap : currentQuality;
+    final sorted = supportedQns.toSet().toList()..sort();
+    if (cap <= 0) return sorted.last;
+    final withinCap = sorted.where((qn) => qn <= cap).toList();
+    return withinCap.isNotEmpty ? withinCap.last : sorted.first;
+  }
+
   Map<String, String> _videoPlaybackHeaders() {
     final headers = AccountStore.headers(AccountRole.video);
     headers['Origin'] = 'https://www.bilibili.com';
@@ -67,11 +79,9 @@ mixin PlayerActionMixin on PlayerStateMixin {
       danmakuSpeed = prefs.getDouble('danmaku_speed') ?? 10.0;
       hideTopDanmaku = prefs.getBool('hide_top_danmaku') ?? false;
       watermarkEnabled = prefs.getBool('watermark_enabled') ?? true;
-      final savedPosition = prefs.getString('watermark_position');
+      // Position is a per-player session preference; never restore it from
+      // persistent storage.
       watermarkPosition = null;
-      for (final item in WatermarkPosition.values) {
-        if (item.name == savedPosition) watermarkPosition = item;
-      }
       hideBottomDanmaku = prefs.getBool('hide_bottom_danmaku') ?? false;
       // 根据设置决定是否显示控制栏
       showControls = !SettingsService.hideControlsOnStart;
@@ -88,11 +98,6 @@ mixin PlayerActionMixin on PlayerStateMixin {
     await prefs.setDouble('danmaku_speed', danmakuSpeed);
     await prefs.setBool('hide_top_danmaku', hideTopDanmaku);
     await prefs.setBool('hide_bottom_danmaku', hideBottomDanmaku);
-    if (watermarkPosition == null) {
-      await prefs.remove('watermark_position');
-    } else {
-      await prefs.setString('watermark_position', watermarkPosition!.name);
-    }
   }
 
   Future<void> toggleWatermark() async {
@@ -116,7 +121,6 @@ mixin PlayerActionMixin on PlayerStateMixin {
     ];
     final next = positions[(positions.indexOf(watermarkPosition) + 1) % positions.length];
     setState(() => watermarkPosition = next);
-    await SettingsService.setWatermarkPosition(next);
     await _reapplyWatermark();
     Fluttertoast.showToast(msg: '去水印位置：${_watermarkPositionLabel(next)}');
   }
@@ -271,12 +275,14 @@ mixin PlayerActionMixin on PlayerStateMixin {
       // 尝试每个编码器
       codecLoop:
       for (final tryCodec in uniqueCodecs) {
-        // 1. 首次请求: 使用默认画质(80)或当前设定画质
+        // 1. 首次请求: 使用全局默认画质上限，未设置时保持原有画质
         // 这样可以获取到视频实际支持的 accept_quality 列表，而不是盲猜
+        final qualityCap = SettingsService.preferredQuality;
+        final initialQn = qualityCap > 0 ? qualityCap : currentQuality;
         var playInfo = await BilibiliApi.getVideoPlayUrl(
           bvid: widget.video.bvid,
           cid: cid!,
-          qn: currentQuality,
+          qn: initialQn,
           forceCodec: tryCodec,
         );
 
@@ -286,27 +292,23 @@ mixin PlayerActionMixin on PlayerStateMixin {
         if (playInfo != null && playInfo['qualities'] != null) {
           final qualities = playInfo['qualities'] as List;
           if (qualities.isNotEmpty) {
-            // 获取该视频支持的最高画质
+              // 根据全局上限选择最高可用画质；0 表示最高可用。
             // qualities 是 List<Map<String, dynamic>>, 需提取 qn 并排序
             final supportedQns = qualities.map((e) => e['qn'] as int).toList();
             if (supportedQns.isNotEmpty) {
-              final maxQn = supportedQns.reduce(
-                (curr, next) => curr > next ? curr : next,
-              );
+              final targetQn = _qualityTarget(supportedQns, qualityCap);
               final currentQn = playInfo['currentQuality'] as int? ?? 0;
 
-              // 如果最高画质 > 当前画质 (且当前画质只是默认的80，或者我们想强制升级)
-              // 注意: 有时候 maxQn 可能高达 127/126，而 currentQn 只有 80
-              if (maxQn > currentQn) {
+              if (targetQn != currentQn) {
                 debugPrint(
-                  '🎬 [SmartQuality] Video account advertised higher quality: '
-                  '$currentQn -> $maxQn',
+                  '🎬 [SmartQuality] Selected quality under cap '
+                  '($qualityCap): $currentQn -> $targetQn',
                 );
 
                 final upgradePlayInfo = await BilibiliApi.getVideoPlayUrl(
                   bvid: widget.video.bvid,
                   cid: cid!,
-                  qn: maxQn, // 精确请求最高画质
+                  qn: targetQn,
                   forceCodec: tryCodec,
                 );
 
@@ -470,9 +472,28 @@ mixin PlayerActionMixin on PlayerStateMixin {
           historyProgress = widget.video.progress;
         }
 
+        // History can be ahead of the current stream (for example after a
+        // video edit or when the API reports another rendition's duration).
+        // Use the model duration as a fallback while the controller is still
+        // loading, then clamp before seeking or showing the resume toast.
+        final controllerDuration = videoController!.value.duration.inSeconds;
+        final modelDuration = widget.video.duration;
+        final videoDuration = controllerDuration > 0
+            ? controllerDuration
+            : modelDuration;
+        if (historyProgress > 0 && videoDuration > 0) {
+          final maxResume = videoDuration > 1 ? videoDuration - 1 : 0;
+          if (historyProgress > maxResume) {
+            debugPrint(
+              '🎬 [Resume] Clamping stale progress $historyProgress to '
+              '$maxResume (duration $videoDuration)',
+            );
+            historyProgress = maxResume;
+          }
+        }
+
         if (historyProgress > 0) {
           // 🔥 如果进度接近视频总时长（最后5秒内），说明视频已播完，从头开始
-          final videoDuration = videoController!.value.duration.inSeconds;
           if (videoDuration > 0 && historyProgress >= videoDuration - 5) {
             debugPrint(
               '🎬 [Resume] Video was completed (progress $historyProgress >= duration $videoDuration - 5), starting from beginning',

@@ -45,6 +45,9 @@ class _PlaybackSettingsState extends State<PlaybackSettings> {
           label: '全局去水印',
           subtitle: '对视频播放器默认启用去水印处理',
           value: SettingsService.watermarkEnabled,
+          autofocus: true,
+          isFirst: true,
+          onMoveUp: widget.onMoveUp,
           sidebarFocusNode: widget.sidebarFocusNode,
           onChanged: (value) async {
             await SettingsService.setWatermarkEnabled(value);
@@ -56,9 +59,6 @@ class _PlaybackSettingsState extends State<PlaybackSettings> {
           label: '自动连播',
           subtitle: '视频播完自动播放下一集或推荐视频',
           value: SettingsService.autoPlay,
-          autofocus: true,
-          isFirst: true, // 第一项，向上返回分类标签
-          onMoveUp: widget.onMoveUp,
           sidebarFocusNode: widget.sidebarFocusNode,
           onChanged: (value) async {
             await SettingsService.setAutoPlay(value);
@@ -114,6 +114,21 @@ class _PlaybackSettingsState extends State<PlaybackSettings> {
           },
         ),
         const SizedBox(height: 16),
+        SettingDropdownRow<int>(
+          label: '默认画质上限',
+          subtitle: '优先使用不超过该画质的最高可用清晰度，不满足时自动降级',
+          value: SettingsService.preferredQuality,
+          items: const [0, 80, 112, 116, 120, 125, 126, 127],
+          itemLabel: _qualityLabel,
+          sidebarFocusNode: widget.sidebarFocusNode,
+          onChanged: (qn) async {
+            if (qn != null) {
+              await SettingsService.setPreferredQuality(qn);
+              setState(() {});
+            }
+          },
+        ),
+        const SizedBox(height: 16),
         SettingDropdownRow<VideoCodec>(
           label: '视频解码器',
           subtitle: '自动=按硬件支持选最优，失败时降级到其他格式',
@@ -143,5 +158,19 @@ class _PlaybackSettingsState extends State<PlaybackSettings> {
     if (seconds < 60) return '$seconds 秒';
     final minutes = seconds ~/ 60;
     return '$minutes 分钟以上';
+  }
+
+  static String _qualityLabel(int qn) {
+    return switch (qn) {
+      0 => '最高可用',
+      80 => '1080P',
+      112 => '1080P+',
+      116 => '1080P 60帧',
+      120 => '4K',
+      125 => 'HDR',
+      126 => '杜比视界',
+      127 => '8K',
+      _ => '${qn}P',
+    };
   }
 }
