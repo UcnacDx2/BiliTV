@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
@@ -28,6 +29,8 @@ import '../../../services/first_frame_watermark_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:media_kit/media_kit.dart';
 import '../../../services/mpv_debug_control.dart';
+
+enum _WatermarkResolutionGate { below4k, atLeast4k, unknown }
 
 /// 播放器逻辑 Mixin
 mixin PlayerActionMixin on PlayerStateMixin {
@@ -137,6 +140,17 @@ mixin PlayerActionMixin on PlayerStateMixin {
     final player = videoController;
     final path = watermarkShaderPath;
     if (player == null || path == null) return;
+    final generation = watermarkGeneration;
+    final gate = await _watermarkResolutionGate(player);
+    if (generation != watermarkGeneration || !identical(player, videoController)) {
+      return;
+    }
+    if (gate != _WatermarkResolutionGate.below4k) {
+      await WatermarkFilter.clear(player.player, path);
+      activeWatermarkRegions = const [];
+      debugPrint('🎬 [Watermark] skipped because resolution is ${gate.name}');
+      return;
+    }
     final regions = watermarkPosition == null
         ? activeWatermarkRegions
         : [WatermarkRegion.fixed(watermarkPosition!)];
@@ -601,6 +615,19 @@ mixin PlayerActionMixin on PlayerStateMixin {
     try {
       final directory = await getApplicationSupportDirectory();
       final shaderPath = WatermarkFilter.pathFor(directory.path);
+      final gate = await _watermarkResolutionGate(player);
+      if (generation != watermarkGeneration || !identical(player, videoController)) {
+        return;
+      }
+      if (gate != _WatermarkResolutionGate.below4k) {
+        await WatermarkFilter.clear(player.player, shaderPath);
+        if (generation == watermarkGeneration && identical(player, videoController)) {
+          watermarkShaderPath = shaderPath;
+          activeWatermarkRegions = const [];
+          debugPrint('🎬 [Watermark] skipped because resolution is ${gate.name}');
+        }
+        return;
+      }
       if (watermarkPosition != null) {
         final fixedRegion = WatermarkRegion.fixed(watermarkPosition!);
         if (_watermarkDebugDisabled || !watermarkEnabled) {
@@ -680,6 +707,44 @@ mixin PlayerActionMixin on PlayerStateMixin {
     } catch (error) {
       debugPrint('🎬 [Watermark] detection failed: $error');
     }
+  }
+
+  Future<_WatermarkResolutionGate> _watermarkResolutionGate(
+    VideoPlayerController player,
+  ) async {
+    // Bilibili's qn values are a useful early signal while mpv is still
+    // publishing video-params. 120 and above are 4K/HDR/Dolby/8K tiers.
+    if (currentQuality >= 120) {
+      return _WatermarkResolutionGate.atLeast4k;
+    }
+    final platform = player.player.platform;
+    if (platform is! NativePlayer) return _WatermarkResolutionGate.unknown;
+    // video-params is populated shortly after mpv opens the media. Poll a
+    // short window so 4K streams are excluded before any detection request.
+    for (var attempt = 0; attempt < 30; attempt++) {
+      try {
+        final raw = await platform.getProperty('video-params');
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final dimensions = [
+            decoded['w'],
+            decoded['h'],
+            decoded['dw'],
+            decoded['dh'],
+          ].whereType<num>().map((value) => value.toInt()).toList();
+          if (dimensions.length >= 2 && dimensions.every((value) => value > 0)) {
+            final longestEdge = dimensions.reduce((a, b) => a > b ? a : b);
+            return longestEdge >= 3840
+                ? _WatermarkResolutionGate.atLeast4k
+                : _WatermarkResolutionGate.below4k;
+          }
+        }
+      } catch (_) {
+        // The property may be temporarily unavailable while the stream opens.
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    return _WatermarkResolutionGate.unknown;
   }
 
   Future<bool> _seekAndConfirmResume(Duration target) async {
